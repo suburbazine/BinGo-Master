@@ -108,6 +108,16 @@
                     <div class="stat-val" id="stat-dflash">-</div>
                     <div class="stat-meta">192 KB Ping-Pong wear-level</div>
                 </div>
+                <div class="stat-card" style="border-left: 3px solid var(--green); cursor: pointer;" onclick="switchToTab('maps'); filterMapsByApp('LIVE_ACTUATOR');" title="Click to view live engine actuator maps">
+                    <div class="stat-label">Live Actuator Maps</div>
+                    <div class="stat-val" style="color: var(--green);">512</div>
+                    <div class="stat-meta">Direct hardware modulation</div>
+                </div>
+                <div class="stat-card" style="border-left: 3px solid var(--red); cursor: pointer;" onclick="switchToTab('maps'); filterMapsByApp('DEAD_INACTIVE');" title="Click to inspect maps that do not apply to this ECU">
+                    <div class="stat-label">Inapplicable / Dead Maps</div>
+                    <div class="stat-val" style="color: var(--red);">258</div>
+                    <div class="stat-meta">Optimal spark & unreferenced</div>
+                </div>
             </div>
 
             <div class="dashboard-grid">
@@ -159,25 +169,38 @@
                 <!-- Map Sidebar & List -->
                 <div class="sidebar-panel">
                     <div class="filter-bar">
-                        <div class="search-box">
+                        <!-- Quick Applicability Pills Filter -->
+                        <div class="app-pills-bar" id="map-app-pills">
+                            <button class="app-pill active" data-app="ALL" title="View all 820 calibration tables">
+                                All <span class="app-pill-count">820</span>
+                            </button>
+                            <button class="app-pill pill-live" data-app="LIVE_ACTUATOR" title="Actively modulates engine hardware">
+                                Live Actuator <span class="app-pill-count">512</span>
+                            </button>
+                            <button class="app-pill pill-dead" data-app="DEAD_INACTIVE" title="Inapplicable maps: optimal spark & unreferenced tables that do not apply to this ECU">
+                                Inapplicable / Dead <span class="app-pill-count">258</span>
+                            </button>
+                            <button class="app-pill pill-torque" data-app="TORQUE_MODEL_REF" title="Torque model calculation reference tables">
+                                Torque Ref <span class="app-pill-count">40</span>
+                            </button>
+                            <button class="app-pill pill-gated" data-app="GATED_DISABLED" title="Gated / bypassed calibration tables">
+                                Gated <span class="app-pill-count">10</span>
+                            </button>
+                        </div>
+
+                        <div class="search-box" style="margin-top: 6px;">
                             <input type="text" id="map-search" placeholder="Search name, folder, $20..., 0x8080..." autocomplete="off">
                             <button id="btn-clear-map-search" class="btn-icon">&times;</button>
                         </div>
                         <div class="select-row">
                             <select id="map-type-filter">
-                                <option value="ALL">All Map Types</option>
+                                <option value="ALL">All Table Types (2D, 1D, Scalars)</option>
                                 <option value="eZweidim">eZweidim (2D Table)</option>
                                 <option value="eZweiInv">eZweiInv (Inverted 2D)</option>
                                 <option value="eEindim">eEindim (1D Curve)</option>
                                 <option value="eEinzel">eEinzel (Scalar)</option>
                             </select>
-                            <select id="map-app-filter" style="margin-top: 6px;">
-                                <option value="ALL">All Applicability</option>
-                                <option value="LIVE_ACTUATOR">Live Actuators Only</option>
-                                <option value="TORQUE_MODEL_REF">Torque Model Only (Reference)</option>
-                                <option value="GATED_DISABLED">Gated / Bypassed (Inactive)</option>
-                                <option value="DEAD_INACTIVE">Dead Leftovers / Structs</option>
-                            </select>
+                            <input type="hidden" id="map-app-filter" value="ALL">
                         </div>
                     </div>
                     <div class="list-meta">
@@ -364,9 +387,12 @@
                 <div class="panel-header">
                     <h2>Supported UDS Diagnostic Data Identifiers (Service 0x22 / 0x2E)</h2>
                     <span class="subtitle">Gated diagnostics, security requirements, and memory mapping</span>
-                </div>
-                <div class="panel-body table-responsive">
-                    <table class="data-table" id="table-dids">
+                <div class="panel-body">
+                    <div class="search-box mb-3">
+                        <input type="text" id="did-search" placeholder="Filter diagnostic identifiers (e.g. F1D0, Ghost Cam, VIN, F190, 0x2E)..." autocomplete="off">
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table" id="table-dids">
                         <thead>
                             <tr>
                                 <th>DID</th>

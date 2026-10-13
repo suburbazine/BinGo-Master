@@ -209,6 +209,18 @@ function initMaps() {
     const appFilter = document.getElementById('map-app-filter');
     const clearBtn = document.getElementById('btn-clear-map-search');
 
+    // Wire up Applicability Pills
+    document.querySelectorAll('#map-app-pills .app-pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+            document.querySelectorAll('#map-app-pills .app-pill').forEach(p => p.classList.remove('active'));
+            pill.classList.add('active');
+            const appVal = pill.getAttribute('data-app');
+            const hiddenInput = document.getElementById('map-app-filter');
+            if (hiddenInput) hiddenInput.value = appVal;
+            searchMaps();
+        });
+    });
+
     let debounceTimer = null;
     searchInput.addEventListener('input', () => {
         clearTimeout(debounceTimer);
@@ -272,6 +284,20 @@ function initMaps() {
     // Cell Edit Modal Handlers
     initCellEditModal();
 
+    searchMaps();
+}
+
+function filterMapsByApp(appVal) {
+    switchToTab('maps');
+    const hiddenInput = document.getElementById('map-app-filter');
+    if (hiddenInput) hiddenInput.value = appVal;
+    document.querySelectorAll('#map-app-pills .app-pill').forEach(p => {
+        if (p.getAttribute('data-app') === appVal) {
+            p.classList.add('active');
+        } else {
+            p.classList.remove('active');
+        }
+    });
     searchMaps();
 }
 
@@ -351,9 +377,17 @@ async function loadMapDetail(mapID) {
 
         const appNoteEl = document.getElementById('cur-map-app-note');
         if (appNoteEl) {
-            if (currentMapObj.applicability_note) {
+            const app = currentMapObj.applicability || 'UNKNOWN';
+            if (app === 'DEAD_INACTIVE') {
+                appNoteEl.innerHTML = `
+                    <div style="font-weight:700; margin-bottom: 2px;">⚠️ INAPPLICABLE / DEAD CALIBRATION MAP (DOES NOT APPLY TO THIS ECU)</div>
+                    <div>${escapeHtml(currentMapObj.applicability_note || 'This map (e.g. optimal spark angle / unreferenced subsystem) is not modulated by firmware on this SIM2K-260 family. Modifying this table will have zero physical effect on engine operation.')}</div>
+                `;
+                appNoteEl.className = 'map-app-alert alert-dead_inactive';
+                appNoteEl.style.display = 'block';
+            } else if (currentMapObj.applicability_note) {
                 appNoteEl.innerHTML = `<strong>Applicability Guidance:</strong> ${escapeHtml(currentMapObj.applicability_note)}`;
-                appNoteEl.className = `map-app-alert alert-${(currentMapObj.applicability || 'live_actuator').toLowerCase()}`;
+                appNoteEl.className = `map-app-alert alert-${app.toLowerCase()}`;
                 appNoteEl.style.display = 'block';
             } else {
                 appNoteEl.style.display = 'none';
@@ -800,16 +834,51 @@ async function inspectRAMAddress(eaStr) {
 /* =========================================================================
    6. UDS DIAGNOSTIC DIDS
    ========================================================================= */
+let allDIDsCache = [];
+
 function initDIDs() {
+    const searchInput = document.getElementById('did-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            renderDIDsTable(allDIDsCache);
+        });
+    }
     loadDIDs();
 }
 
 async function loadDIDs() {
     try {
-        const dids = await fetch('/api/dids').then(r => r.json());
-        const tbody = document.querySelector('#table-dids tbody');
+        allDIDsCache = await fetch('/api/dids').then(r => r.json());
+        renderDIDsTable(allDIDsCache);
+    } catch (err) {
+        console.error('Failed to load DIDs:', err);
+    }
+}
 
-        tbody.innerHTML = dids.map(d => `
+function renderDIDsTable(dids) {
+    const tbody = document.querySelector('#table-dids tbody');
+    if (!tbody) return;
+
+    const searchInput = document.getElementById('did-search');
+    const filter = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+    const filtered = (dids || []).filter(d => {
+        if (!filter) return true;
+        return (d.did && d.did.toLowerCase().includes(filter)) ||
+               (d.name && d.name.toLowerCase().includes(filter)) ||
+               (d.description && d.description.toLowerCase().includes(filter)) ||
+               (d.handler_name && d.handler_name.toLowerCase().includes(filter)) ||
+               (d.handler_ea && d.handler_ea.toLowerCase().includes(filter));
+    });
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No matching UDS DIDs found.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(d => {
+        const handlerHtml = renderHandlerLinks(d.handler_ea, d.handler_name);
+        return `
             <tr>
                 <td class="mono"><strong>${escapeHtml(d.did)}</strong></td>
                 <td><strong>${escapeHtml(d.name)}</strong></td>
@@ -818,17 +887,27 @@ async function loadDIDs() {
                 <td><span class="badge ${d.security.includes('None') ? 'success' : 'danger'}">${escapeHtml(d.security)}</span></td>
                 <td class="mono">${escapeHtml(d.memory_target)}</td>
                 <td class="mono">${d.length_bytes}B</td>
-                <td>
-                    <a href="#" class="ref-link" onclick="jumpToFunction('${d.handler_ea.split(' ')[0]}'); return false;">
-                        ${escapeHtml(d.handler_name)}
-                    </a>
-                </td>
+                <td>${handlerHtml}</td>
                 <td style="color:var(--text-muted); font-size:11px;">${escapeHtml(d.description)}</td>
             </tr>
-        `).join('');
-    } catch (err) {
-        console.error('Failed to load DIDs:', err);
+        `;
+    }).join('');
+}
+
+function renderHandlerLinks(eaStr, nameStr) {
+    if (!eaStr) return escapeHtml(nameStr || '-');
+    const matches = eaStr.match(/0x[0-9A-Fa-f]+/g);
+    if (!matches || matches.length === 0) {
+        return escapeHtml(nameStr || eaStr);
     }
+    return matches.map(ea => {
+        let label = ea;
+        if (eaStr.includes(`${ea} (Read)`)) label = `${ea} (Read)`;
+        else if (eaStr.includes(`${ea} (Write)`)) label = `${ea} (Write)`;
+        else if (eaStr.includes(`${ea} (SSW)`)) label = `${ea} (SSW)`;
+        else if (eaStr.includes(`${ea} (App)`)) label = `${ea} (App)`;
+        return `<a href="#" class="ref-link" style="margin-right: 4px; display:inline-block; margin-bottom:2px;" onclick="jumpToFunction('${ea}'); return false;">${escapeHtml(label)}</a>`;
+    }).join(' ');
 }
 
 /* =========================================================================
@@ -925,7 +1004,24 @@ async function loadFunctionDetail(eaHex) {
 
     try {
         const res = await fetch(`/api/functions/${eaHex}`).then(r => r.json());
-        const f = res.function;
+        const f = res ? res.function : null;
+        if (!f) {
+            placeholder.style.display = 'flex';
+            placeholder.innerHTML = `
+                <div class="empty-state" style="max-width: 480px; text-align: center; margin: auto;">
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">🔍</div>
+                    <h3 style="color: var(--text-bright); margin-bottom: 0.5rem;">Function Not Registered</h3>
+                    <p style="color: var(--text-dim); font-size: 0.9rem; line-height: 1.5;">
+                        Address <code style="color: var(--accent); background: var(--bg-card); padding: 2px 6px; border-radius: 4px;">${escapeHtml(eaHex)}</code> was not found in the function index of the database.
+                    </p>
+                    <p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 0.75rem;">
+                        This address may be an unanalyzed sub-routine, raw data/table, or outside the mapped firmware partitions.
+                    </p>
+                </div>
+            `;
+            content.style.display = 'none';
+            return;
+        }
         currentFnEA = f.ea;
 
         // Headers
@@ -994,6 +1090,15 @@ async function loadFunctionDetail(eaHex) {
 
     } catch (err) {
         console.error('Failed to load function detail:', err);
+        placeholder.style.display = 'flex';
+        placeholder.innerHTML = `
+            <div class="empty-state" style="max-width: 480px; text-align: center; margin: auto; color: var(--red);">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">⚠️</div>
+                <h3 style="margin-bottom: 0.5rem;">Error Loading Disassembly</h3>
+                <p style="font-size: 0.9rem;">${escapeHtml(err.message)}</p>
+            </div>
+        `;
+        content.style.display = 'none';
     }
 }
 
