@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BinGo Master - ECU Calibration & Binary Architecture Studio</title>
+    <link rel="stylesheet" href="app.css">
+</head>
+<body>
+    <header class="app-header">
+        <div class="brand">
+            <div class="brand-logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="20" height="20" rx="4"></rect>
+                    <path d="M6 6h12v12H6z"></path>
+                    <path d="M9 12h6"></path>
+                    <path d="M12 9v6"></path>
+                </svg>
+            </div>
+            <div class="brand-text">
+                <h1>BinGo <span>Master</span></h1>
+                <span class="sub">ECU Calibration & Binary Architecture Studio</span>
+            </div>
+        </div>
+
+        <nav class="nav-tabs">
+            <button class="nav-tab active" data-tab="dashboard">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                Dashboard
+            </button>
+            <button class="nav-tab" data-tab="maps">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M19 9l-5 5-4-4-3 3"></path></svg>
+                Calibration Maps
+            </button>
+            <button class="nav-tab" data-tab="dflash">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="M6 8h.01"></path><path d="M10 8h.01"></path><path d="M14 8h.01"></path><path d="M18 8h.01"></path><path d="M6 12h12"></path><path d="M6 16h8"></path></svg>
+                DFLASH / FEE
+            </button>
+            <button class="nav-tab" data-tab="ram">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                RAM Dictionary
+            </button>
+            <button class="nav-tab" data-tab="dids">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                UDS DIDs
+            </button>
+            <button class="nav-tab" data-tab="disasm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                Disassembly
+            </button>
+        </nav>
+
+        <div class="header-actions">
+            <!-- Active Bin Selector Button -->
+            <div class="bin-selector-btn" id="btn-open-bin-modal" title="Click to switch calibration binary or upload a new .bin file">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                <div class="bin-btn-info">
+                    <span class="bin-btn-lbl">ACTIVE BIN</span>
+                    <span class="bin-btn-name" id="hdr-bin-name">Loading...</span>
+                </div>
+                <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+
+            <button class="btn btn-outline" id="btn-view-diffs" title="View pending session edits">
+                <span class="badge" id="diff-counter">0</span> Diffs
+            </button>
+            <button class="btn btn-primary" id="btn-export-bin" title="Export modified binary with valid CRC">
+                Export Bin
+            </button>
+            <div class="status-indicator" id="system-status" title="System Status: Connected">
+                <span class="dot online"></span>
+                <span class="status-label">Online</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="app-main">
+        <!-- TAB 1: DASHBOARD -->
+        <section id="tab-dashboard" class="tab-content active">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Instructions Decoded</div>
+                    <div class="stat-val" id="stat-insns">-</div>
+                    <div class="stat-meta">Zero data-pocket desync</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Reconstructed Functions</div>
+                    <div class="stat-val" id="stat-functions">-</div>
+                    <div class="stat-meta">TriCore 1.6.2 entry points</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Direct & Indirect Calls</div>
+                    <div class="stat-val" id="stat-calls">-</div>
+                    <div class="stat-meta">Call edges & trampolines</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Resolved Memory Accesses</div>
+                    <div class="stat-val" id="stat-mem">-</div>
+                    <div class="stat-meta">PFLASH, SRAM, DFLASH, SFRs</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Calibration Maps</div>
+                    <div class="stat-val" id="stat-maps">-</div>
+                    <div class="stat-meta">3D, 2D curves & scalars</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">DFLASH EEPROM Blocks</div>
+                    <div class="stat-val" id="stat-dflash">-</div>
+                    <div class="stat-meta">192 KB Ping-Pong wear-level</div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid">
+                <!-- Partitions Overview -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>TC1797 Flash Partitions & Memory Architecture</h2>
+                        <span class="badge info">17 Partitions</span>
+                    </div>
+                    <div class="panel-body table-responsive">
+                        <table class="data-table" id="table-partitions">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Partition</th>
+                                    <th>Address Range</th>
+                                    <th>Memory Type</th>
+                                    <th>Size</th>
+                                    <th>Functions</th>
+                                    <th>Instructions</th>
+                                    <th>Role / Subsystem</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td colspan="8" class="loading">Loading partitions...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Cross-Partition Interaction Matrix -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>Cross-Partition Interaction Matrix</h2>
+                        <span class="subtitle">Click any cell to inspect boundary traffic</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="matrix-container" id="matrix-wrapper">
+                            <div class="loading">Generating interaction matrix...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: CALIBRATION MAPS -->
+        <section id="tab-maps" class="tab-content">
+            <div class="split-view">
+                <!-- Map Sidebar & List -->
+                <div class="sidebar-panel">
+                    <div class="filter-bar">
+                        <div class="search-box">
+                            <input type="text" id="map-search" placeholder="Search name, folder, $20..., 0x8080..." autocomplete="off">
+                            <button id="btn-clear-map-search" class="btn-icon">&times;</button>
+                        </div>
+                        <div class="select-row">
+                            <select id="map-type-filter">
+                                <option value="ALL">All Map Types</option>
+                                <option value="eZweidim">eZweidim (2D Table)</option>
+                                <option value="eZweiInv">eZweiInv (Inverted 2D)</option>
+                                <option value="eEindim">eEindim (1D Curve)</option>
+                                <option value="eEinzel">eEinzel (Scalar)</option>
+                            </select>
+                            <select id="map-app-filter" style="margin-top: 6px;">
+                                <option value="ALL">All Applicability</option>
+                                <option value="LIVE_ACTUATOR">Live Actuators Only</option>
+                                <option value="TORQUE_MODEL_REF">Torque Model Only (Reference)</option>
+                                <option value="GATED_DISABLED">Gated / Bypassed (Inactive)</option>
+                                <option value="DEAD_INACTIVE">Dead Leftovers / Structs</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="list-meta">
+                        <span id="map-count-badge">0 maps found</span>
+                    </div>
+                    <div class="item-list" id="map-list">
+                        <div class="loading">Loading calibration maps...</div>
+                    </div>
+                </div>
+
+                <!-- Map Detail & Grid Editor -->
+                <div class="main-panel">
+                    <div id="map-editor-placeholder" class="empty-state">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"></path><path d="M19 9l-5 5-4-4-3 3"></path></svg>
+                        <h3>Select a calibration map from the list</h3>
+                        <p>Search through all 820 tables, curves, and scalars from the Continental SIM2K-260 mappack.</p>
+                    </div>
+
+                    <div id="map-editor-content" class="map-editor" style="display:none;">
+                        <div class="editor-header">
+                            <div>
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                    <h2 id="cur-map-name" style="margin: 0;">-</h2>
+                                    <span class="badge" id="cur-map-app">-</span>
+                                </div>
+                                <div class="editor-meta">
+                                    <span class="meta-tag" id="cur-map-folder">-</span>
+                                    <span class="meta-tag" id="cur-map-offset">-</span>
+                                    <span class="meta-tag" id="cur-map-ea">-</span>
+                                    <span class="meta-tag" id="cur-map-dims">-</span>
+                                    <span class="meta-tag" id="cur-map-org">-</span>
+                                    <span class="meta-tag" id="cur-map-unit">-</span>
+                                </div>
+                            </div>
+                            <div class="editor-actions">
+                                <div class="unit-toggle">
+                                    <label><input type="radio" name="val-display" value="physical" checked> Scaled Physical</label>
+                                    <label><input type="radio" name="val-display" value="raw"> Raw Hex/Int</label>
+                                </div>
+                                <div class="unit-toggle" style="background: rgba(30, 64, 175, 0.15); border-color: rgba(96, 165, 250, 0.3);">
+                                    <label style="color: #93c5fd; font-weight: 600; cursor: pointer;">
+                                        <input type="checkbox" id="toggle-heatmap" checked style="accent-color: var(--accent);"> Rainbow Heatmap
+                                    </label>
+                                </div>
+                                <button class="btn btn-secondary" id="btn-reset-map">Revert Map</button>
+                                <button class="btn btn-primary" id="btn-save-map">Apply Edits</button>
+                            </div>
+                        </div>
+
+                        <div id="cur-map-app-note" class="map-app-alert" style="display:none;"></div>
+
+                        <div class="map-references" id="cur-map-refs">
+                            <!-- Ref functions links -->
+                        </div>
+
+                        <!-- Rainbow Heatmap Scale Legend -->
+                        <div id="map-heatmap-legend" class="map-heatmap-legend" style="display:none;"></div>
+
+                        <div class="grid-wrapper">
+                            <table class="grid-table" id="map-grid">
+                                <!-- Dynamic 2D grid -->
+                            </table>
+                        </div>
+
+                        <div class="map-comment" id="cur-map-comment"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: DFLASH / FEE INSPECTOR -->
+        <section id="tab-dflash" class="tab-content">
+            <div class="dflash-overview-grid">
+                <div class="sector-card active-sector" id="sector-1-card">
+                    <div class="sector-badge">CURRENT LIVE STATE</div>
+                    <h3>Active Sector 1</h3>
+                    <div class="sector-range">0x18000 .. 0x2FFFF (96 KB)</div>
+                    <p>Current live wear-leveling generation. Houses active vehicle identity, immotransponder pair, adaptations, and live DTC records.</p>
+                    <div class="sector-stats" id="sector-1-stats">-</div>
+                </div>
+                <div class="sector-card passive-sector" id="sector-0-card">
+                    <div class="sector-badge">PREVIOUS GENERATION</div>
+                    <h3>Passive Sector 0</h3>
+                    <div class="sector-range">0x00000 .. 0x17FFF (96 KB)</div>
+                    <p>Ping-pong shadow generation retained across wear-leveling compaction cycles. Historical revisions and factory initial states.</p>
+                    <div class="sector-stats" id="sector-0-stats">-</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>DFLASH / FEE Logical Blocks Inventory (0x00 .. 0x75)</h2>
+                    <div class="category-filters" id="dflash-category-filters">
+                        <button class="cat-pill active" data-cat="ALL">ALL</button>
+                        <button class="cat-pill" data-cat="IDENTITY">IDENTITY</button>
+                        <button class="cat-pill" data-cat="SECURITY">SECURITY</button>
+                        <button class="cat-pill" data-cat="ADAPTATION">ADAPTATION</button>
+                        <button class="cat-pill" data-cat="DIAGNOSTICS">DIAGNOSTICS</button>
+                        <button class="cat-pill" data-cat="SYSTEM">SYSTEM</button>
+                    </div>
+                </div>
+                <div class="panel-body table-responsive">
+                    <table class="data-table" id="table-dflash-blocks">
+                        <thead>
+                            <tr>
+                                <th>Block ID</th>
+                                <th>Name / Semantic Role</th>
+                                <th>Category</th>
+                                <th>Sector</th>
+                                <th>Offset</th>
+                                <th>Length</th>
+                                <th>Version</th>
+                                <th>CRC16</th>
+                                <th>Status</th>
+                                <th>Payload Preview</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="11" class="loading">Loading DFLASH blocks...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 4: RAM DICTIONARY -->
+        <section id="tab-ram" class="tab-content">
+            <div class="ram-view-container">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>Curated Engine State Variables (SRAM / DSPR / LMU)</h2>
+                        <span class="subtitle">Searchable dictionary with real-time producer & consumer resolution</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="search-box mb-3">
+                            <input type="text" id="ram-curated-search" placeholder="Filter variables (RPM, TOIL, Spark, Boost, IMMO, SDA...)" autocomplete="off">
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-ram-curated">
+                                <thead>
+                                    <tr>
+                                        <th>Address</th>
+                                        <th>Variable Name</th>
+                                        <th>Part</th>
+                                        <th>Type / Unit</th>
+                                        <th>Scaling</th>
+                                        <th>Description</th>
+                                        <th>Reads</th>
+                                        <th>Writes</th>
+                                        <th>Producers</th>
+                                        <th>Consumers</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="10" class="loading">Loading RAM symbols...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel mt-4">
+                    <div class="panel-header">
+                        <h2>RAM Address Inspector & Variable Explorer</h2>
+                        <span class="subtitle">Inspect any DSPR or LMU address (0xD0000000..0xD003FFFF / 0xB0000000..0xB003FFFF)</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="input-group mb-3">
+                            <input type="text" id="ram-inspect-input" placeholder="Enter RAM Address e.g. 0xD001166A" class="form-control">
+                            <button class="btn btn-primary" id="btn-inspect-ram">Inspect Address</button>
+                        </div>
+                        <div id="ram-inspect-result" style="display:none;">
+                            <!-- Dynamic Producer/Consumer breakdown -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 5: UDS DIDS -->
+        <section id="tab-dids" class="tab-content">
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Supported UDS Diagnostic Data Identifiers (Service 0x22 / 0x2E)</h2>
+                    <span class="subtitle">Gated diagnostics, security requirements, and memory mapping</span>
+                </div>
+                <div class="panel-body table-responsive">
+                    <table class="data-table" id="table-dids">
+                        <thead>
+                            <tr>
+                                <th>DID</th>
+                                <th>Identifier Name</th>
+                                <th>Access</th>
+                                <th>Allowed Sessions</th>
+                                <th>Security Gating</th>
+                                <th>Memory Target</th>
+                                <th>Length</th>
+                                <th>Handler Routine</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="9" class="loading">Loading UDS DIDs...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 6: FUNCTION & DISASSEMBLY BROWSER -->
+        <section id="tab-disasm" class="tab-content">
+            <div class="split-view">
+                <!-- Function Search & List -->
+                <div class="sidebar-panel">
+                    <div class="filter-bar">
+                        <div class="search-box">
+                            <input type="text" id="fn-search" placeholder="Search address (0x8010BAE8) or name..." autocomplete="off">
+                            <button id="btn-clear-fn-search" class="btn-icon">&times;</button>
+                        </div>
+                        <div class="select-row">
+                            <select id="fn-partition-filter">
+                                <option value="ALL">All Partitions</option>
+                                <option value="APP_CORE">APP_CORE</option>
+                                <option value="SSW_LOADER">SSW_LOADER</option>
+                                <option value="UPPER_APP">UPPER_APP</option>
+                                <option value="BOOT_SECTOR">BOOT_SECTOR</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="list-meta">
+                        <span id="fn-count-badge">0 functions</span>
+                    </div>
+                    <div class="item-list" id="fn-list">
+                        <div class="loading">Loading functions...</div>
+                    </div>
+                </div>
+
+                <!-- Disassembly & Function Details -->
+                <div class="main-panel">
+                    <div id="fn-editor-placeholder" class="empty-state">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                        <h3>Select a function to disassemble</h3>
+                        <p>Browse 9,988 decoded TriCore functions, examine callers, callees, and memory accesses.</p>
+                        <div class="quick-jump-chips">
+                            <span>Quick Jump:</span>
+                            <button class="chip" data-fn="0x8010BAE8">0x8010BAE8 UDS Dispatcher</button>
+                            <button class="chip" data-fn="0x801E08D4">0x801E08D4 IMMO Task</button>
+                            <button class="chip" data-fn="0x8002B784">0x8002B784 Gray Seedkey</button>
+                            <button class="chip" data-fn="0x80040A00">0x80040A00 App Core Entry</button>
+                        </div>
+                    </div>
+
+                    <div id="fn-detail-content" class="fn-viewer" style="display:none;">
+                        <div class="fn-header">
+                            <div>
+                                <h2 id="cur-fn-name">-</h2>
+                                <div class="editor-meta">
+                                    <span class="meta-tag" id="cur-fn-range">-</span>
+                                    <span class="meta-tag" id="cur-fn-part">-</span>
+                                    <span class="meta-tag" id="cur-fn-size">-</span>
+                                    <span class="meta-tag" id="cur-fn-insns">-</span>
+                                    <span class="meta-tag" id="cur-fn-ret">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sub-navigation for Function View -->
+                        <div class="sub-tabs">
+                            <button class="sub-tab active" data-sub="insns">Disassembly (<span id="fn-sub-insn-count">0</span>)</button>
+                            <button class="sub-tab" data-sub="callers">Callers (<span id="fn-sub-caller-count">0</span>)</button>
+                            <button class="sub-tab" data-sub="callees">Callees (<span id="fn-sub-callee-count">0</span>)</button>
+                            <button class="sub-tab" data-sub="memory">Memory Access (<span id="fn-sub-mem-count">0</span>)</button>
+                        </div>
+
+                        <div class="sub-content active" id="sub-insns">
+                            <div class="disasm-listing" id="disasm-code">
+                                <!-- Instruction lines -->
+                            </div>
+                        </div>
+
+                        <div class="sub-content" id="sub-callers">
+                            <table class="data-table" id="table-fn-callers">
+                                <thead>
+                                    <tr>
+                                        <th>Call Site EA</th>
+                                        <th>Caller Function</th>
+                                        <th>Partition</th>
+                                        <th>Type</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+
+                        <div class="sub-content" id="sub-callees">
+                            <table class="data-table" id="table-fn-callees">
+                                <thead>
+                                    <tr>
+                                        <th>Call Site EA</th>
+                                        <th>Callee EA</th>
+                                        <th>Callee Function</th>
+                                        <th>Partition</th>
+                                        <th>Type</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+
+                        <div class="sub-content" id="sub-memory">
+                            <table class="data-table" id="table-fn-memory">
+                                <thead>
+                                    <tr>
+                                        <th>Insn EA</th>
+                                        <th>Target EA</th>
+                                        <th>Target Partition</th>
+                                        <th>Type</th>
+                                        <th>Width</th>
+                                        <th>Symbol</th>
+                                        <th>Instruction</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- MODAL: DFLASH BLOCK HEX VIEWER -->
+    <div class="modal" id="modal-dflash-block">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-header">
+                <h3 id="modal-dflash-title">FEE Block Detail</h3>
+                <button class="modal-close" id="modal-dflash-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="block-info-bar" id="modal-dflash-meta"></div>
+                <h4>Active Payload Hex Dump</h4>
+                <div class="hex-viewer" id="modal-dflash-hex"></div>
+
+                <h4 class="mt-3">Wear-Leveling Revision Timeline Across Generations</h4>
+                <div class="timeline" id="modal-dflash-timeline"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: BOUNDARY TRAFFIC INSPECTOR -->
+    <div class="modal" id="modal-matrix-traffic">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-header">
+                <h3 id="modal-traffic-title">Cross-Partition Boundary Traffic</h3>
+                <button class="modal-close" id="modal-traffic-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="data-table" id="table-matrix-traffic">
+                        <thead>
+                            <tr>
+                                <th>Insn EA</th>
+                                <th>Source Function</th>
+                                <th>Target EA</th>
+                                <th>Target Symbol</th>
+                                <th>Access</th>
+                                <th>Width</th>
+                                <th>Mnemonic / Operand</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: DIFFS & EXPORT -->
+    <div class="modal" id="modal-diffs">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3>Uncommitted Session Diffs</h3>
+                <button class="modal-close" id="modal-diffs-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Tracked cell modifications held in memory. Original bin files are strictly preserved.</p>
+                <div class="table-responsive">
+                    <table class="data-table" id="table-diffs">
+                        <thead>
+                            <tr>
+                                <th>Map Name</th>
+                                <th>Offset</th>
+                                <th>Cell [R, C]</th>
+                                <th>Original Value</th>
+                                <th>Modified Value</th>
+                                <th>Unit</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btn-modal-reset-diffs">Discard All Diffs</button>
+                <button class="btn btn-primary" id="btn-modal-export">Export to New Bin</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: CELL EDIT -->
+    <div class="modal" id="modal-cell-edit">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-header">
+                <h3>Edit Map Cell</h3>
+                <button class="modal-close" id="modal-cell-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Coordinate:</label>
+                    <div id="cell-coord-label" class="form-static">-</div>
+                </div>
+                <div class="form-group">
+                    <label for="cell-input-phys">Physical Value:</label>
+                    <input type="number" step="any" id="cell-input-phys" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label for="cell-input-raw">Raw Integer Value:</label>
+                    <input type="number" step="1" id="cell-input-raw" class="form-control">
+                </div>
+                <div class="form-meta" id="cell-edit-meta"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btn-cell-cancel">Cancel</button>
+                <button class="btn btn-primary" id="btn-cell-apply">Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: BIN SELECTOR & UPLOAD -->
+    <div class="modal" id="modal-bin-selector">
+        <div class="modal-dialog modal-md">
+            <div class="modal-header">
+                <div>
+                    <h3 style="margin: 0;">Switch Calibration Binary</h3>
+                    <span class="subtitle" style="font-size: 11px; color: var(--text-muted);">Select from workspace builds or upload a 4 MB SIM2K-260 binary</span>
+                </div>
+                <button class="modal-close" id="modal-bin-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Upload Dropzone -->
+                <div class="upload-dropzone" id="bin-dropzone">
+                    <input type="file" id="bin-file-input" accept=".bin" style="display: none;">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    <div style="font-weight: 600; margin-top: 6px;">Drop a 4 MB .bin file here, or <a href="#" id="btn-browse-bin" style="color: var(--accent); text-decoration: underline;">browse file</a></div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Accepts full 4,194,304-byte TC1797 flash images</div>
+                </div>
+
+                <!-- Filter / Search Bins -->
+                <div class="search-box" style="margin: 14px 0 10px 0;">
+                    <input type="text" id="bin-filter-input" placeholder="Filter binaries by name (e.g. v103, v94, Sleepy, Crackle)..." autocomplete="off">
+                </div>
+
+                <!-- Bin List Container -->
+                <div class="bin-list" id="available-bins-list">
+                    <div class="loading">Scanning available binaries...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

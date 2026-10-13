@@ -1,0 +1,39 @@
+# BinGo Master Git Ignore Rules
+
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test and coverage artifacts
+*.test
+*.out
+
+# Databases and SQLite artifacts (STRICT: NO DATABASE FILES IN REPO)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# ECU Binary flash images & calibration dumps (STRICT: NO BIN FILES IN REPO)
+*.bin
+*.BIN
+*.bcf
+*.eep
+*.hex
+*.s19
+*.fls
+Claude_Bins/
+dumps/
+bins/
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
