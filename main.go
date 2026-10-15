@@ -27,18 +27,25 @@ func findExistingPath(candidates []string) string {
 
 func main() {
 	defaultDB := findExistingPath([]string{
+		"flash_analysis.db",
 		"mapping/flash_analysis.db",
+		"../Kia SIM2K-260/mapping/flash_analysis.db",
 		"../../mapping/flash_analysis.db",
 		"../mapping/flash_analysis.db",
-		"flash_analysis.db",
+		"tcu_cptsh_95441_4J571.db",
+		"awd_95447_4J105.db",
 	})
 
 	defaultBin := findExistingPath([]string{
+		"IntensePop_v103_Pops-10.bin",
 		"Claude_Bins/IntensePop_v103_Pops-10.bin",
+		"../Kia SIM2K-260/Claude_Bins/IntensePop_v103_Pops-10.bin",
 		"../../Claude_Bins/IntensePop_v103_Pops-10.bin",
 		"../Claude_Bins/IntensePop_v103_Pops-10.bin",
 		"CKHK_3TMS2C7C_SLEEPY_DECAT_QUIET_GOOD.bin",
 		"../../CKHK_3TMS2C7C_SLEEPY_DECAT_QUIET_GOOD.bin",
+		"tcu_cptsh_stock_read_complete.bin",
+		"awd_95447_4J105_C00000_C0BFFF.bin",
 		"calibration.bin",
 	})
 

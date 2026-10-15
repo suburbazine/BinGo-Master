@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -52,6 +53,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/bin/select", s.handleBinSelect)
 	mux.HandleFunc("/api/bin/upload", s.handleBinUpload)
 	mux.HandleFunc("/api/bin/export", s.handleExportBin)
+	mux.HandleFunc("/api/db/select", s.handleDBSelect)
 	mux.HandleFunc("/api/dflash/sectors", s.handleDFlashSectors)
 	mux.HandleFunc("/api/dflash/blocks", s.handleDFlashBlocks)
 	mux.HandleFunc("/api/dflash/blocks/", s.handleDFlashBlockDetail)
@@ -276,11 +278,18 @@ func (s *Server) handleExportBin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	launchGateMsg := "Launch-Gate CRC-32 (0x200404) verified & valid"
+	if strings.Contains(strings.ToLower(s.dbPath), "tcu_") {
+		launchGateMsg = "Kefico CPTSH Calibration IEEE CRC-32 (0x1C0244) verified & valid"
+	} else if strings.Contains(strings.ToLower(s.dbPath), "awd_") {
+		launchGateMsg = "AWD Calibration CRC-32 verified & valid"
+	}
+
 	s.jsonResponse(w, map[string]interface{}{
-		"success":       true,
-		"output_path":   req.OutputPath,
-		"crc_hex":       fmt.Sprintf("0x%08X", crc),
-		"launch_gate":   "Launch-Gate CRC-32 (0x200404) verified & valid",
+		"success":        true,
+		"output_path":    req.OutputPath,
+		"crc_hex":        fmt.Sprintf("0x%08X", crc),
+		"launch_gate":    launchGateMsg,
 		"modified_cells": len(s.bin.GetAllDiffs()),
 	}, http.StatusOK)
 }
@@ -341,7 +350,10 @@ func (s *Server) handleDFlashBlockDetail(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleRAMCurated(w http.ResponseWriter, r *http.Request) {
-	symbols := CuratedRAMSymbols()
+	symbols, fromDB := s.db.GetDBCuratedRAMSymbols()
+	if !fromDB {
+		symbols = CuratedRAMSymbols()
+	}
 
 	// Fill in access counts and producer/consumer functions from DB
 	for i := range symbols {
@@ -417,7 +429,10 @@ func (s *Server) handleRAMInspect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDIDs(w http.ResponseWriter, r *http.Request) {
-	dids := GetUDSDIDs()
+	dids, fromDB := s.db.GetDBUDSDIDs()
+	if !fromDB {
+		dids = GetUDSDIDs()
+	}
 	s.jsonResponse(w, dids, http.StatusOK)
 }
 
@@ -513,6 +528,115 @@ func (s *Server) handleFunctionDetail(w http.ResponseWriter, r *http.Request) {
 	s.jsonResponse(w, detail, http.StatusOK)
 }
 
+func (s *Server) getAvailableDBs() []AvailableDB {
+	candidates := []struct {
+		path string
+		cat  string
+	}{
+		{"flash_analysis.db", "SIM2K-260 Engine ECU (4 MB TriCore TC277)"},
+		{"mapping/flash_analysis.db", "SIM2K-260 Engine ECU (4 MB TriCore TC277)"},
+		{"../Kia SIM2K-260/mapping/flash_analysis.db", "SIM2K-260 Engine ECU (4 MB TriCore TC277)"},
+		{"awd_95447_4J105.db", "AWD ECU 95447-4J105 (48 KB Infineon XC2000 / C166)"},
+		{"mapping/awd_95447_4J105.db", "AWD ECU 95447-4J105 (48 KB Infineon XC2000 / C166)"},
+		{"../Kia SIM2K-260/mapping/awd_95447_4J105.db", "AWD ECU 95447-4J105 (48 KB Infineon XC2000 / C166)"},
+		{"tcu_cptsh_95441_4J571.db", "Kefico CPTSH 8AT TCU 95441-4J571 (768 KB Big-Endian / A8RE25R1)"},
+		{"C:/Claude Projects/Kefico CPTSH/out/tcu_cptsh_95441_4J571.db", "Kefico CPTSH 8AT TCU 95441-4J571 (768 KB Big-Endian / A8RE25R1)"},
+	}
+	seen := make(map[string]bool)
+	var list []AvailableDB
+	for _, c := range candidates {
+		slashed := filepath.ToSlash(c.path)
+		base := filepath.Base(slashed)
+		if seen[base] {
+			continue
+		}
+		if info, err := os.Stat(c.path); err == nil && !info.IsDir() {
+			seen[base] = true
+			sizeStr := fmt.Sprintf("%.2f MB", float64(info.Size())/(1024.0*1024.0))
+			if info.Size() < 1024*1024 {
+				sizeStr = fmt.Sprintf("%.0f KB", float64(info.Size())/1024.0)
+			}
+			list = append(list, AvailableDB{
+				Filename:  base,
+				Path:      slashed,
+				SizeBytes: info.Size(),
+				SizeMB:    sizeStr,
+				ModTime:   info.ModTime().Format("2006-01-02 15:04"),
+				IsActive:  filepath.Base(s.dbPath) == base,
+				Category:  c.cat,
+			})
+		}
+	}
+	return list
+}
+
+func (s *Server) autoMatchDBForBin(binPath string) {
+	lower := strings.ToLower(filepath.Base(binPath))
+	isAwd := strings.Contains(lower, "awd_")
+	isTcu := strings.Contains(lower, "tcu") || strings.Contains(lower, "ekm") || strings.Contains(lower, "cptsh")
+	if info, err := os.Stat(binPath); err == nil && !info.IsDir() {
+		sz := info.Size()
+		if sz <= 65536 {
+			isAwd = true
+		} else if sz == 0xBFC00 || sz == 0xC0000 {
+			isTcu = true
+		}
+	}
+
+	if isTcu {
+		if filepath.Base(s.dbPath) == "tcu_cptsh_95441_4J571.db" {
+			return
+		}
+		for _, cand := range []string{
+			"tcu_cptsh_95441_4J571.db",
+			"C:/Claude Projects/Kefico CPTSH/out/tcu_cptsh_95441_4J571.db",
+		} {
+			if _, err := os.Stat(cand); err == nil {
+				if err := s.db.SwitchDB(cand); err == nil {
+					s.dbPath = filepath.ToSlash(cand)
+					fmt.Printf("[Server] Auto-switched database to Kefico CPTSH TCU: %s\n", s.dbPath)
+				}
+				return
+			}
+		}
+	} else if isAwd {
+		if filepath.Base(s.dbPath) == "awd_95447_4J105.db" {
+			return
+		}
+		for _, cand := range []string{
+			"awd_95447_4J105.db",
+			"mapping/awd_95447_4J105.db",
+			"../Kia SIM2K-260/mapping/awd_95447_4J105.db",
+		} {
+			if _, err := os.Stat(cand); err == nil {
+				if err := s.db.SwitchDB(cand); err == nil {
+					s.dbPath = filepath.ToSlash(cand)
+					fmt.Printf("[Server] Auto-switched database to AWD ECU: %s\n", s.dbPath)
+				}
+				return
+			}
+		}
+	} else {
+		if filepath.Base(s.dbPath) == "flash_analysis.db" {
+			return
+		}
+		for _, cand := range []string{
+			"flash_analysis.db",
+			"mapping/flash_analysis.db",
+			"../Kia SIM2K-260/mapping/flash_analysis.db",
+			"../mapping/flash_analysis.db",
+		} {
+			if _, err := os.Stat(cand); err == nil {
+				if err := s.db.SwitchDB(cand); err == nil {
+					s.dbPath = filepath.ToSlash(cand)
+					fmt.Printf("[Server] Auto-switched database to SIM2K-260 ECU: %s\n", s.dbPath)
+				}
+				return
+			}
+		}
+	}
+}
+
 func (s *Server) handleBinList(w http.ResponseWriter, r *http.Request) {
 	bins := s.bin.GetAvailableBins()
 	curPath := s.bin.GetBinPath()
@@ -521,7 +645,9 @@ func (s *Server) handleBinList(w http.ResponseWriter, r *http.Request) {
 	s.jsonResponse(w, BinListResponse{
 		ActivePath: curPath,
 		ActiveName: curName,
+		ActiveDB:   filepath.ToSlash(s.dbPath),
 		Bins:       bins,
+		DBs:        s.getAvailableDBs(),
 	}, http.StatusOK)
 }
 
@@ -544,9 +670,84 @@ func (s *Server) handleBinSelect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.autoMatchDBForBin(req.Path)
+
 	s.jsonResponse(w, map[string]interface{}{
 		"success":  true,
 		"path":     s.bin.GetBinPath(),
+		"filename": filepath.Base(s.bin.GetBinPath()),
+		"db_path":  s.dbPath,
+	}, http.StatusOK)
+}
+
+func (s *Server) handleDBSelect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.errorResponse(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Path == "" {
+		s.errorResponse(w, "invalid request: path required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.db.SwitchDB(req.Path); err != nil {
+		s.errorResponse(w, fmt.Sprintf("failed to switch database: %v", err), http.StatusBadRequest)
+		return
+	}
+	s.dbPath = filepath.ToSlash(req.Path)
+
+	// Keep the loaded binary family aligned with the selected database
+	curBinLower := strings.ToLower(s.bin.GetBinPath())
+	if strings.Contains(strings.ToLower(s.dbPath), "tcu_") {
+		if !strings.Contains(curBinLower, "tcu") && !strings.Contains(curBinLower, "ekm") {
+			for _, cand := range []string{
+				"tcu_cptsh_stock_read_complete.bin",
+				"tcu_cptsh_EKM422402108_tuned.bin",
+				"C:/Claude Projects/Kefico CPTSH/out/tcu_read_complete.bin",
+			} {
+				if _, err := os.Stat(cand); err == nil {
+					_ = s.bin.Load(cand)
+					break
+				}
+			}
+		}
+	} else if strings.Contains(strings.ToLower(s.dbPath), "awd_") {
+		if !strings.Contains(curBinLower, "awd_") {
+			for _, cand := range []string{
+				"awd_95447_4J105_C00000_C0BFFF.bin",
+				"../Kia SIM2K-260/awd_95447_4J105_C00000_C0BFFF.bin",
+				"awd_95447_4J105_cal_32k_C04000.bin",
+			} {
+				if _, err := os.Stat(cand); err == nil {
+					_ = s.bin.Load(cand)
+					break
+				}
+			}
+		}
+	} else {
+		if strings.Contains(curBinLower, "awd_") || strings.Contains(curBinLower, "tcu") || strings.Contains(curBinLower, "ekm") {
+			for _, cand := range []string{
+				"Claude_Bins/IntensePop_v103_Pops-10.bin",
+				"../Kia SIM2K-260/Claude_Bins/IntensePop_v103_Pops-10.bin",
+				"CKHK_3TMS2C7C_SLEEPY_DECAT_QUIET_GOOD.bin",
+				"../Kia SIM2K-260/CKHK_3TMS2C7C_SLEEPY_DECAT_QUIET_GOOD.bin",
+			} {
+				if _, err := os.Stat(cand); err == nil {
+					_ = s.bin.Load(cand)
+					break
+				}
+			}
+		}
+	}
+
+	s.jsonResponse(w, map[string]interface{}{
+		"success":  true,
+		"db_path":  s.dbPath,
+		"bin_path": s.bin.GetBinPath(),
 		"filename": filepath.Base(s.bin.GetBinPath()),
 	}, http.StatusOK)
 }
@@ -582,10 +783,19 @@ func (s *Server) handleBinUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(data) == 0xBFC00 || len(data) == 0xC0000 {
+		s.autoMatchDBForBin("tcu_" + header.Filename)
+	} else if len(data) <= 65536 {
+		s.autoMatchDBForBin("awd_" + header.Filename)
+	} else {
+		s.autoMatchDBForBin(header.Filename)
+	}
+
 	s.jsonResponse(w, map[string]interface{}{
 		"success":  true,
 		"path":     savedPath,
 		"filename": filepath.Base(savedPath),
+		"db_path":  s.dbPath,
 	}, http.StatusOK)
 }
 

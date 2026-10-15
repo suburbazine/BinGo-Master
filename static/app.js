@@ -89,6 +89,42 @@ async function loadDashboard() {
         document.getElementById('stat-maps').innerText = statsRes.map_count.toLocaleString();
         document.getElementById('stat-dflash').innerText = statsRes.dflash_block_count.toLocaleString();
 
+        const liveMapsEl = document.getElementById('stat-live-maps');
+        if (liveMapsEl) liveMapsEl.innerText = (statsRes.live_map_count || 0).toLocaleString();
+
+        const deadMapsEl = document.getElementById('stat-dead-maps');
+        if (deadMapsEl) deadMapsEl.innerText = (statsRes.dead_map_count || 0).toLocaleString();
+
+        const isAWD = Array.isArray(partsRes) && partsRes.some(p => p.name === 'CAL_DPP1');
+        const isTCU = Array.isArray(partsRes) && partsRes.some(p => p.name === 'CAL_HEADER_DIR');
+        const deadLblEl = document.getElementById('stat-dead-maps-lbl');
+        const deadMetaEl = document.getElementById('stat-dead-maps-meta');
+        if (deadLblEl) deadLblEl.innerText = (isAWD || isTCU) ? 'Identity / Static Maps' : 'Inapplicable / Dead Maps';
+        if (deadMetaEl) deadMetaEl.innerText = isTCU ? 'ECU IDs, SVN build tags & header descriptors' : (isAWD ? 'ECU IDs, headers & static blocks' : 'Optimal spark & unreferenced');
+
+        const partBadgeEl = document.getElementById('stat-partitions-badge');
+        if (partBadgeEl) partBadgeEl.innerText = `${statsRes.partition_count || partsRes.length} Partitions`;
+
+        const hdrPartTitle = document.getElementById('hdr-partitions-title');
+        if (hdrPartTitle) {
+            hdrPartTitle.innerText = isTCU
+                ? 'Kefico CPTSH 8AT TCU Big-Endian Flash & Calibration Partitions (A8RE25R1 / 95441-4J571)'
+                : (isAWD
+                    ? 'Infineon XC2000 / C166 Flash & RAM Partitions (DPP0..DPP3)'
+                    : 'TC1797 / TC277 Flash Partitions & Memory Architecture');
+        }
+
+        // Sync Calibration Maps Applicability Filter Pills
+        const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+        setTxt('pill-cnt-all', (statsRes.map_count || 0).toLocaleString());
+        setTxt('pill-cnt-live', (statsRes.live_map_count || 0).toLocaleString());
+        setTxt('pill-cnt-dead', (statsRes.dead_map_count || 0).toLocaleString());
+        setTxt('pill-cnt-torque', (statsRes.torque_map_count || 0).toLocaleString());
+        setTxt('pill-cnt-gated', (statsRes.gated_map_count || 0).toLocaleString());
+        setTxt('pill-lbl-dead', (isAWD || isTCU) ? 'Identity / Static' : 'Inapplicable / Dead');
+        setTxt('pill-lbl-torque', isAWD ? 'Breakpoint Axes' : 'Torque Ref');
+        setTxt('pill-lbl-gated', (isAWD || isTCU) ? 'Diagnostic / DTC' : 'Gated');
+
         // Render Partitions Table
         const partTbody = document.querySelector('#table-partitions tbody');
         partTbody.innerHTML = partsRes.map(p => `
@@ -103,6 +139,19 @@ async function loadDashboard() {
                 <td style="color:var(--text-muted);">${escapeHtml(p.description || '')}</td>
             </tr>
         `).join('');
+
+        // Sync Disassembly Partition Filter Dropdown
+        const partSelect = document.getElementById('fn-partition-filter');
+        if (partSelect && Array.isArray(partsRes)) {
+            const curVal = partSelect.value;
+            partSelect.innerHTML = `<option value="ALL">All Partitions</option>` +
+                partsRes.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)} (${escapeHtml(p.memory_type || '')})</option>`).join('');
+            if (partsRes.some(p => p.name === curVal)) {
+                partSelect.value = curVal;
+            } else {
+                partSelect.value = 'ALL';
+            }
+        }
 
         // Render Matrix
         renderMatrix(partsRes, matrixRes);
@@ -189,17 +238,24 @@ let currentMapData = null;
 let pendingEdits = [];
 
 function getApplicabilityBadge(app, isDetailed = false) {
+    const idAttr = isDetailed ? ' id="cur-map-app"' : '';
     switch (app) {
         case 'LIVE_ACTUATOR':
-            return `<span class="badge badge-live" title="Live physical engine actuator">${isDetailed ? 'LIVE ACTUATOR' : 'LIVE'}</span>`;
+            return `<span${idAttr} class="badge badge-live" title="Live physical actuator">${isDetailed ? 'LIVE ACTUATOR' : 'LIVE'}</span>`;
         case 'TORQUE_MODEL_REF':
-            return `<span class="badge badge-tq" title="Internal torque model reference. Does NOT advance coils.">${isDetailed ? 'TORQUE MODEL ONLY' : 'TORQUE MODEL'}</span>`;
+            return `<span${idAttr} class="badge badge-tq" title="Internal torque model reference. Does NOT advance coils.">${isDetailed ? 'TORQUE MODEL ONLY' : 'TORQUE MODEL'}</span>`;
+        case 'AXIS':
+            return `<span${idAttr} class="badge badge-tq" title="1D Breakpoint Axis referenced by 1D/2D maps">${isDetailed ? 'BREAKPOINT AXIS' : 'AXIS'}</span>`;
         case 'GATED_DISABLED':
-            return `<span class="badge badge-gated" title="Gated / bypassed by zero scale or switch">${isDetailed ? 'GATED / DISABLED' : 'GATED'}</span>`;
+            return `<span${idAttr} class="badge badge-gated" title="Gated / bypassed by zero scale or switch">${isDetailed ? 'GATED / DISABLED' : 'GATED'}</span>`;
+        case 'DIAGNOSTIC':
+            return `<span${idAttr} class="badge badge-gated" title="UDS / DTC / RTOS diagnostic descriptor table">${isDetailed ? 'DIAGNOSTIC TABLE' : 'DIAG'}</span>`;
         case 'DEAD_INACTIVE':
-            return `<span class="badge badge-dead" title="Unreferenced / hardware incompatible">${isDetailed ? 'DEAD / INACTIVE' : 'DEAD'}</span>`;
+            return `<span${idAttr} class="badge badge-dead" title="Unreferenced / hardware incompatible">${isDetailed ? 'DEAD / INACTIVE' : 'DEAD'}</span>`;
+        case 'IDENTITY':
+            return `<span${idAttr} class="badge badge-dead" title="ECU identity string / header constant">${isDetailed ? 'IDENTITY / HEADER' : 'IDENTITY'}</span>`;
         default:
-            return `<span class="badge info">${escapeHtml(app || 'UNKNOWN')}</span>`;
+            return `<span${idAttr} class="badge info">${escapeHtml(app || 'UNKNOWN')}</span>`;
     }
 }
 
@@ -1309,10 +1365,49 @@ async function loadActiveBinHeader() {
     }
 }
 
+let availableDBsCache = [];
+let activeDBPathCache = '';
+
+async function refreshAllTabsAfterSwitch() {
+    currentMapObj = null;
+    currentMapData = null;
+    currentFnEA = null;
+
+    const mapContent = document.getElementById('map-editor-content');
+    const mapPlaceholder = document.getElementById('map-editor-placeholder');
+    if (mapContent) mapContent.style.display = 'none';
+    if (mapPlaceholder) mapPlaceholder.style.display = 'flex';
+
+    const fnContent = document.getElementById('fn-detail-content');
+    const fnPlaceholder = document.getElementById('fn-editor-placeholder');
+    if (fnContent) fnContent.style.display = 'none';
+    if (fnPlaceholder) fnPlaceholder.style.display = 'flex';
+
+    // Update partition filter dropdown dynamically for the active ECU database
+    try {
+        const parts = await fetch('/api/partitions').then(r => r.json());
+        const partSelect = document.getElementById('fn-partition-filter');
+        if (partSelect && Array.isArray(parts)) {
+            partSelect.innerHTML = `<option value="ALL">All Partitions</option>` +
+                parts.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)} (${escapeHtml(p.memory_type || '')})</option>`).join('');
+            partSelect.value = 'ALL';
+        }
+    } catch (e) {
+        console.error('Failed to refresh partitions dropdown:', e);
+    }
+
+    if (typeof loadDashboard === 'function') loadDashboard();
+    if (typeof searchMaps === 'function') searchMaps();
+    if (typeof loadDFlash === 'function') loadDFlash();
+    if (typeof loadCuratedRAM === 'function') loadCuratedRAM();
+    if (typeof loadDIDs === 'function') loadDIDs();
+    if (typeof searchFunctions === 'function') searchFunctions();
+}
+
 async function loadAvailableBins() {
     const listEl = document.getElementById('available-bins-list');
     if (!listEl) return;
-    listEl.innerHTML = '<div class="loading">Scanning available 4 MB binaries...</div>';
+    listEl.innerHTML = '<div class="loading">Scanning available ECU databases & binaries...</div>';
 
     try {
         const res = await fetch('/api/bin/list').then(r => r.json());
@@ -1320,11 +1415,13 @@ async function loadAvailableBins() {
             const hdrName = document.getElementById('hdr-bin-name');
             if (hdrName) {
                 hdrName.innerText = res.active_name;
-                hdrName.title = res.active_path || res.active_name;
+                hdrName.title = `${res.active_path || res.active_name} (DB: ${res.active_db || 'flash_analysis.db'})`;
             }
         }
 
         availableBinsCache = res.bins || [];
+        availableDBsCache = res.dbs || [];
+        activeDBPathCache = res.active_db || '';
         renderBinsList(availableBinsCache);
     } catch (err) {
         listEl.innerHTML = `<div class="empty-state"><p>Error loading binaries: ${escapeHtml(err.message)}</p></div>`;
@@ -1344,12 +1441,43 @@ function renderBinsList(bins) {
                (b.category && b.category.toLowerCase().includes(filter));
     });
 
-    if (filtered.length === 0) {
+    let dbSectionHtml = '';
+    if (availableDBsCache && availableDBsCache.length > 0 && !filter) {
+        dbSectionHtml = `<div style="margin-bottom: 10px; font-size: 11px; font-weight: 700; color: var(--accent-cyan); text-transform: uppercase; letter-spacing: 0.06em;">ECU Analysis Databases (.db)</div>` +
+            availableDBsCache.map(db => {
+                const isActive = activeDBPathCache && (activeDBPathCache === db.path || activeDBPathCache.endsWith(db.filename));
+                const activeClass = isActive ? 'active-bin' : '';
+                const badgeActive = isActive ? '<span class="badge badge-success" style="font-size:10px;">ACTIVE DB</span>' : '';
+                const actionBtn = isActive
+                    ? `<span class="badge badge-success" style="padding: 6px 12px; font-weight:700;">ACTIVE</span>`
+                    : `<button class="btn btn-sm btn-primary select-db-btn" data-path="${escapeHtml(db.path)}" data-filename="${escapeHtml(db.filename)}">Switch ECU DB</button>`;
+                return `
+                    <div class="bin-card ${activeClass}" style="border-left: 3px solid var(--accent-cyan); margin-bottom: 6px;">
+                        <div class="bin-card-left">
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span class="bin-card-title">${escapeHtml(db.filename)}</span>
+                                ${badgeActive}
+                                <span class="badge info" style="font-size:10px;">SQLite DB</span>
+                            </div>
+                            <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px;">
+                                ${escapeHtml(db.category || '')} &bull; ${escapeHtml(String(db.size_mb || ''))}
+                            </div>
+                        </div>
+                        <div class="bin-card-right">
+                            ${actionBtn}
+                        </div>
+                    </div>
+                `;
+            }).join('') +
+            `<div style="margin: 12px 0 8px 0; font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em;">Calibration & Firmware Binaries (.bin)</div>`;
+    }
+
+    if (filtered.length === 0 && !dbSectionHtml) {
         listEl.innerHTML = '<div class="empty-state" style="padding: 20px;"><p>No matching binaries found.</p></div>';
         return;
     }
 
-    listEl.innerHTML = filtered.map(b => {
+    listEl.innerHTML = dbSectionHtml + filtered.map(b => {
         const isActive = b.is_active;
         const activeClass = isActive ? 'active-bin' : '';
         const badgeActive = isActive ? '<span class="badge badge-success" style="font-size:10px;">ACTIVE</span>' : '';
@@ -1378,6 +1506,16 @@ function renderBinsList(bins) {
         `;
     }).join('');
 
+    // Attach click listeners to DB select buttons
+    listEl.querySelectorAll('.select-db-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const path = btn.getAttribute('data-path');
+            const filename = btn.getAttribute('data-filename');
+            selectDatabase(path, filename);
+        });
+    });
+
     // Attach click listeners to select buttons
     listEl.querySelectorAll('.select-bin-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -1387,6 +1525,34 @@ function renderBinsList(bins) {
             selectBinary(path, filename);
         });
     });
+}
+
+async function selectDatabase(path, filename) {
+    try {
+        const res = await fetch('/api/db/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path })
+        }).then(r => r.json());
+
+        if (res.success) {
+            const hdrName = document.getElementById('hdr-bin-name');
+            if (hdrName && res.filename) {
+                hdrName.innerText = res.filename;
+                hdrName.title = `${res.bin_path} (DB: ${res.db_path})`;
+            }
+            const modal = document.getElementById('modal-bin-selector');
+            if (modal) modal.classList.remove('active');
+            pendingEdits = [];
+            updateDiffCount();
+            await refreshAllTabsAfterSwitch();
+            loadAvailableBins();
+        } else {
+            alert(`Failed to switch database: ${res.error || 'Unknown error'}`);
+        }
+    } catch (err) {
+        alert(`Request failed: ${err.message}`);
+    }
 }
 
 async function selectBinary(path, filename) {
@@ -1410,7 +1576,7 @@ async function selectBinary(path, filename) {
             const hdrName = document.getElementById('hdr-bin-name');
             if (hdrName) {
                 hdrName.innerText = res.filename;
-                hdrName.title = res.path;
+                hdrName.title = `${res.path} (DB: ${res.db_path || ''})`;
             }
 
             // Close modal
@@ -1421,10 +1587,7 @@ async function selectBinary(path, filename) {
             pendingEdits = [];
             updateDiffCount();
 
-            // Refresh current map grid if currently viewing a map
-            if (typeof currentMapObj !== 'undefined' && currentMapObj && typeof loadMapDetail === 'function') {
-                loadMapDetail(currentMapObj.id);
-            }
+            await refreshAllTabsAfterSwitch();
 
             // Refresh binary list cache
             loadAvailableBins();
@@ -1440,12 +1603,13 @@ async function uploadBinaryFile(file) {
     if (!file) return;
 
     if (!file.name.toLowerCase().endsWith('.bin')) {
-        alert('Invalid file: only SIM2K-260 .bin calibration files are supported.');
+        alert('Invalid file: only .bin calibration/firmware files are supported.');
         return;
     }
 
-    if (file.size !== 4194304) {
-        if (!confirm(`Warning: SIM2K-260 flash images are exactly 4,194,304 bytes (4.00 MB).\nThe selected file is ${file.size.toLocaleString()} bytes.\n\nDo you still wish to attempt loading it?`)) {
+    const validSizes = [4194304, 786432, 785408, 49152, 32768, 16384];
+    if (!validSizes.includes(file.size)) {
+        if (!confirm(`Warning: Expected 4 MB (SIM2K-260), 768 KB / 767 KB (Kefico CPTSH TCU), or 48 KB / 32 KB / 16 KB (AWD ECU) binary.\nThe selected file is ${file.size.toLocaleString()} bytes.\n\nDo you still wish to attempt loading it?`)) {
             return;
         }
     }
@@ -1464,7 +1628,7 @@ async function uploadBinaryFile(file) {
 
     const listEl = document.getElementById('available-bins-list');
     if (listEl) {
-        listEl.innerHTML = `<div class="loading">Uploading ${escapeHtml(file.name)} (${(file.size / (1024 * 1024)).toFixed(2)} MB)...</div>`;
+        listEl.innerHTML = `<div class="loading">Uploading ${escapeHtml(file.name)} (${(file.size / 1024).toFixed(1)} KB)...</div>`;
     }
 
     try {
@@ -1477,7 +1641,7 @@ async function uploadBinaryFile(file) {
             const hdrName = document.getElementById('hdr-bin-name');
             if (hdrName) {
                 hdrName.innerText = res.filename;
-                hdrName.title = res.path;
+                hdrName.title = `${res.path} (DB: ${res.db_path || ''})`;
             }
 
             // Close modal
@@ -1488,10 +1652,7 @@ async function uploadBinaryFile(file) {
             pendingEdits = [];
             updateDiffCount();
 
-            // Refresh map detail if open
-            if (typeof currentMapObj !== 'undefined' && currentMapObj && typeof loadMapDetail === 'function') {
-                loadMapDetail(currentMapObj.id);
-            }
+            await refreshAllTabsAfterSwitch();
 
             alert(`Binary "${res.filename}" uploaded and loaded successfully!`);
             loadAvailableBins();
@@ -1504,4 +1665,5 @@ async function uploadBinaryFile(file) {
         loadAvailableBins();
     }
 }
+
 

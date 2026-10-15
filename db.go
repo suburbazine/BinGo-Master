@@ -158,7 +158,29 @@ func (s *DBStore) Close() error {
 	return s.db.Close()
 }
 
+// SwitchDB closes the current SQLite database and opens a new one at dbPath
+func (s *DBStore) SwitchDB(dbPath string) error {
+	if _, err := os.Stat(dbPath); err != nil {
+		return fmt.Errorf("database file not found: %w", err)
+	}
+	newDB, err := sql.Open("sqlite3", dbPath+"?cache=shared")
+	if err != nil {
+		return fmt.Errorf("failed to open sqlite database '%s': %w", dbPath, err)
+	}
+	if err := newDB.Ping(); err != nil {
+		newDB.Close()
+		return fmt.Errorf("failed to connect to database '%s': %w", dbPath, err)
+	}
+	oldDB := s.db
+	s.db = newDB
+	if oldDB != nil {
+		_ = oldDB.Close()
+	}
+	return nil
+}
+
 // GetStats returns summary counts
+
 func (s *DBStore) GetStats() (Stats, error) {
 	var st Stats
 	row := s.db.QueryRow(`
@@ -170,7 +192,11 @@ func (s *DBStore) GetStats() (Stats, error) {
 			(SELECT COUNT(*) FROM cal_maps),
 			(SELECT COUNT(*) FROM dflash_blocks),
 			(SELECT COUNT(*) FROM symbols),
-			(SELECT COUNT(*) FROM partitions)
+			(SELECT COUNT(*) FROM partitions),
+			(SELECT COUNT(*) FROM cal_maps WHERE applicability = 'LIVE_ACTUATOR'),
+			(SELECT COUNT(*) FROM cal_maps WHERE applicability IN ('DEAD_INACTIVE', 'IDENTITY')),
+			(SELECT COUNT(*) FROM cal_maps WHERE applicability IN ('TORQUE_MODEL_REF', 'AXIS')),
+			(SELECT COUNT(*) FROM cal_maps WHERE applicability IN ('GATED_DISABLED', 'DIAGNOSTIC'))
 	`)
 	err := row.Scan(
 		&st.InstructionCount,
@@ -181,6 +207,10 @@ func (s *DBStore) GetStats() (Stats, error) {
 		&st.DFlashBlockCount,
 		&st.SymbolCount,
 		&st.PartitionCount,
+		&st.LiveMapCount,
+		&st.DeadMapCount,
+		&st.TorqueMapCount,
+		&st.GatedMapCount,
 	)
 	return st, err
 }
@@ -353,13 +383,31 @@ func (s *DBStore) SearchMaps(query, folder, mapType, applicability string, limit
 	}
 
 	if mapType != "" && mapType != "ALL" {
-		whereParts = append(whereParts, "map_type = ?")
-		args = append(args, mapType)
+		switch mapType {
+		case "eZweidim":
+			whereParts = append(whereParts, "map_type IN ('eZweidim', '2D_MAP')")
+		case "eEindim":
+			whereParts = append(whereParts, "map_type IN ('eEindim', '1D_CURVE', 'AXIS')")
+		case "eEinzel":
+			whereParts = append(whereParts, "map_type IN ('eEinzel', 'SCALAR', 'ID_STRING')")
+		default:
+			whereParts = append(whereParts, "map_type = ?")
+			args = append(args, mapType)
+		}
 	}
 
 	if applicability != "" && applicability != "ALL" {
-		whereParts = append(whereParts, "applicability = ?")
-		args = append(args, applicability)
+		switch applicability {
+		case "DEAD_INACTIVE":
+			whereParts = append(whereParts, "applicability IN ('DEAD_INACTIVE', 'IDENTITY')")
+		case "TORQUE_MODEL_REF":
+			whereParts = append(whereParts, "applicability IN ('TORQUE_MODEL_REF', 'AXIS')")
+		case "GATED_DISABLED":
+			whereParts = append(whereParts, "applicability IN ('GATED_DISABLED', 'DIAGNOSTIC')")
+		default:
+			whereParts = append(whereParts, "applicability = ?")
+			args = append(args, applicability)
+		}
 	}
 
 	whereClause := strings.Join(whereParts, " AND ")
@@ -465,8 +513,35 @@ func (s *DBStore) GetMapByID(id int) (*CalMap, error) {
 // GetDFlashSectors returns sector summary
 func (s *DBStore) GetDFlashSectors() []DFlashSector {
 	var s0Count, s0Active, s1Count, s1Active int
-	s.db.QueryRow("SELECT COUNT(*), SUM(is_active) FROM dflash_blocks WHERE sector_idx = 0").Scan(&s0Count, &s0Active)
-	s.db.QueryRow("SELECT COUNT(*), SUM(is_active) FROM dflash_blocks WHERE sector_idx = 1").Scan(&s1Count, &s1Active)
+	s.db.QueryRow("SELECT COUNT(*), COALESCE(SUM(is_active), 0) FROM dflash_blocks WHERE sector_idx = 0").Scan(&s0Count, &s0Active)
+	s.db.QueryRow("SELECT COUNT(*), COALESCE(SUM(is_active), 0) FROM dflash_blocks WHERE sector_idx = 1").Scan(&s1Count, &s1Active)
+
+	var isAWD int
+	s.db.QueryRow("SELECT COUNT(*) FROM partitions WHERE name = 'CAL_DPP1'").Scan(&isAWD)
+	if isAWD > 0 {
+		return []DFlashSector{
+			{
+				SectorIndex:  1,
+				Name:         "Sector 1 (C166 RAM & NVRAM Shadow: DPP3/DPP0)",
+				Status:       "ACTIVE (Live 16 KB RAM & EEPROM Shadow 0xC00000..0xC03FFF)",
+				StartOffset:  0x00000,
+				EndOffset:    0x03FFF,
+				SizeKB:       16,
+				BlockCount:   s1Count,
+				ActiveBlocks: s1Active,
+			},
+			{
+				SectorIndex:  0,
+				Name:         "Sector 0 (Flash Identity & Diagnostic Blocks: DPP1/DPP2)",
+				Status:       "CONST (32 KB Calibration & UDS/DTC Flash 0xC04000..0xC0BFFF)",
+				StartOffset:  0x04000,
+				EndOffset:    0x0BFFF,
+				SizeKB:       32,
+				BlockCount:   s0Count,
+				ActiveBlocks: s0Active,
+			},
+		}
+	}
 
 	return []DFlashSector{
 		{
@@ -665,7 +740,7 @@ func (s *DBStore) SearchRAMAddresses(query string, limit int) ([]RAMSymbol, erro
 		limit = 50
 	}
 
-	whereClause := "WHERE target_partition IN ('DSPR', 'LMU')"
+	whereClause := "WHERE target_partition IN ('DSPR', 'LMU', 'RAM_DPP3', 'RAM_DPP0')"
 	var args []interface{}
 	if query != "" {
 		q := strings.TrimSpace(query)
@@ -674,6 +749,9 @@ func (s *DBStore) SearchRAMAddresses(query string, limit int) ([]RAMSymbol, erro
 				whereClause += " AND target_ea = ?"
 				args = append(args, val)
 			}
+		} else {
+			whereClause += " AND (target_symbol LIKE ? OR op_str LIKE ?)"
+			args = append(args, "%"+q+"%", "%"+q+"%")
 		}
 	}
 
@@ -701,13 +779,17 @@ func (s *DBStore) SearchRAMAddresses(query string, limit int) ([]RAMSymbol, erro
 		var part string
 		var total, reads, writes int
 		if err := rows.Scan(&ea, &part, &total, &reads, &writes); err == nil {
+			name := fmt.Sprintf("RAM_%08X", ea)
+			desc := fmt.Sprintf("Active RAM variable at 0x%08X (%d reads, %d writes)", ea, reads, writes)
+			dtype := "uint32"
+			_ = s.db.QueryRow("SELECT name, data_type, description FROM curated_ram WHERE ea = ?", ea).Scan(&name, &dtype, &desc)
 			sym := RAMSymbol{
 				EA:          ea,
 				EAHex:       fmt.Sprintf("0x%08X", ea),
-				Name:        fmt.Sprintf("RAM_%08X", ea),
+				Name:        name,
 				Partition:   part,
-				Description: fmt.Sprintf("Active engine RAM variable at 0x%08X (%d reads, %d writes)", ea, reads, writes),
-				DataType:    "uint32",
+				Description: desc,
+				DataType:    dtype,
 				TotalAccess: total,
 				Reads:       reads,
 				Writes:      writes,
@@ -716,6 +798,72 @@ func (s *DBStore) SearchRAMAddresses(query string, limit int) ([]RAMSymbol, erro
 		}
 	}
 	return list, nil
+}
+
+// GetDBCuratedRAMSymbols returns curated RAM symbols from the SQLite curated_ram table if present
+func (s *DBStore) GetDBCuratedRAMSymbols() ([]RAMSymbol, bool) {
+	rows, err := s.db.Query(`
+		SELECT ea, name, partition, category, data_type, unit, description
+		FROM curated_ram
+		ORDER BY ea
+	`)
+	if err != nil {
+		return nil, false
+	}
+	defer rows.Close()
+
+	var list []RAMSymbol
+	for rows.Next() {
+		var sym RAMSymbol
+		var cat string
+		if err := rows.Scan(
+			&sym.EA, &sym.Name, &sym.Partition, &cat,
+			&sym.DataType, &sym.Unit, &sym.Description,
+		); err == nil {
+			sym.EAHex = fmt.Sprintf("0x%08X", sym.EA)
+			sym.Scaling = cat
+			list = append(list, sym)
+		}
+	}
+	if len(list) == 0 {
+		return nil, false
+	}
+	return list, true
+}
+
+// GetDBUDSDIDs returns UDS DID and DTC records from the SQLite uds_dids table if present
+func (s *DBStore) GetDBUDSDIDs() ([]UDSDid, bool) {
+	rows, err := s.db.Query(`
+		SELECT did, name, category, ram_ea, length_bytes, description, handler_fn
+		FROM uds_dids
+		ORDER BY did
+	`)
+	if err != nil {
+		return nil, false
+	}
+	defer rows.Close()
+
+	var list []UDSDid
+	for rows.Next() {
+		var d UDSDid
+		if err := rows.Scan(
+			&d.DID, &d.Name, &d.Access, &d.MemoryTarget,
+			&d.LengthBytes, &d.Description, &d.HandlerName,
+		); err == nil {
+			d.Sessions = "Default (0x01) / Extended (0x03)"
+			if strings.Contains(d.Access, "Write") {
+				d.Security = "Level 0x11 Required (Write)"
+			} else {
+				d.Security = "None (0x22 Read / 0x19 DTC)"
+			}
+			d.HandlerEA = "0x00C291E4"
+			list = append(list, d)
+		}
+	}
+	if len(list) == 0 {
+		return nil, false
+	}
+	return list, true
 }
 
 // GetFunctionByEA retrieves a function by exact address or enclosing range

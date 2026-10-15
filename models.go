@@ -19,14 +19,18 @@ type Partition struct {
 
 // Stats holds high-level statistics for the dashboard
 type Stats struct {
-	InstructionCount  int `json:"instruction_count"`
-	FunctionCount     int `json:"function_count"`
-	CallCount         int `json:"call_count"`
+	InstructionCount   int `json:"instruction_count"`
+	FunctionCount      int `json:"function_count"`
+	CallCount          int `json:"call_count"`
 	MemoryInteractions int `json:"memory_interactions"`
-	MapCount          int `json:"map_count"`
-	DFlashBlockCount  int `json:"dflash_block_count"`
-	SymbolCount       int `json:"symbol_count"`
-	PartitionCount    int `json:"partition_count"`
+	MapCount           int `json:"map_count"`
+	DFlashBlockCount   int `json:"dflash_block_count"`
+	SymbolCount        int `json:"symbol_count"`
+	PartitionCount     int `json:"partition_count"`
+	LiveMapCount       int `json:"live_map_count"`
+	DeadMapCount       int `json:"dead_map_count"`
+	TorqueMapCount     int `json:"torque_map_count"`
+	GatedMapCount      int `json:"gated_map_count"`
 }
 
 // MatrixCell represents an element in the cross-partition interaction matrix
@@ -303,6 +307,21 @@ type AvailableBin struct {
 type BinListResponse struct {
 	ActivePath string         `json:"active_path"`
 	ActiveName string         `json:"active_name"`
+	ActiveDB   string         `json:"active_db"`
 	Bins       []AvailableBin `json:"bins"`
+	DBs        []AvailableDB  `json:"dbs,omitempty"`
 }
+
+// AvailableDB represents a discovered SQLite analysis database (.db)
+type AvailableDB struct {
+	Path      string `json:"path"`
+	Filename  string `json:"filename"`
+	Folder    string `json:"folder"`
+	SizeBytes int64  `json:"size_bytes"`
+	SizeMB    string `json:"size_mb"`
+	ModTime   string `json:"mod_time"`
+	IsActive  bool   `json:"is_active"`
+	Category  string `json:"category"`
+}
+
 

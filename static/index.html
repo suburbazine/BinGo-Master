@@ -108,15 +108,15 @@
                     <div class="stat-val" id="stat-dflash">-</div>
                     <div class="stat-meta">192 KB Ping-Pong wear-level</div>
                 </div>
-                <div class="stat-card" style="border-left: 3px solid var(--green); cursor: pointer;" onclick="switchToTab('maps'); filterMapsByApp('LIVE_ACTUATOR');" title="Click to view live engine actuator maps">
+                <div class="stat-card" style="border-left: 3px solid var(--green); cursor: pointer;" onclick="switchToTab('maps'); filterMapsByApp('LIVE_ACTUATOR');" title="Click to view live actuator maps">
                     <div class="stat-label">Live Actuator Maps</div>
-                    <div class="stat-val" style="color: var(--green);">512</div>
+                    <div class="stat-val" id="stat-live-maps" style="color: var(--green);">-</div>
                     <div class="stat-meta">Direct hardware modulation</div>
                 </div>
-                <div class="stat-card" style="border-left: 3px solid var(--red); cursor: pointer;" onclick="switchToTab('maps'); filterMapsByApp('DEAD_INACTIVE');" title="Click to inspect maps that do not apply to this ECU">
-                    <div class="stat-label">Inapplicable / Dead Maps</div>
-                    <div class="stat-val" style="color: var(--red);">258</div>
-                    <div class="stat-meta">Optimal spark & unreferenced</div>
+                <div class="stat-card" style="border-left: 3px solid var(--red); cursor: pointer;" onclick="switchToTab('maps'); filterMapsByApp('DEAD_INACTIVE');" title="Click to inspect dead/inapplicable or identity maps">
+                    <div class="stat-label" id="stat-dead-maps-lbl">Inapplicable / Dead Maps</div>
+                    <div class="stat-val" id="stat-dead-maps" style="color: var(--red);">-</div>
+                    <div class="stat-meta" id="stat-dead-maps-meta">Optimal spark & unreferenced</div>
                 </div>
             </div>
 
@@ -124,8 +124,8 @@
                 <!-- Partitions Overview -->
                 <div class="panel">
                     <div class="panel-header">
-                        <h2>TC1797 Flash Partitions & Memory Architecture</h2>
-                        <span class="badge info">17 Partitions</span>
+                        <h2 id="hdr-partitions-title">Flash Partitions & Memory Architecture</h2>
+                        <span class="badge info" id="stat-partitions-badge">- Partitions</span>
                     </div>
                     <div class="panel-body table-responsive">
                         <table class="data-table" id="table-partitions">
@@ -171,20 +171,20 @@
                     <div class="filter-bar">
                         <!-- Quick Applicability Pills Filter -->
                         <div class="app-pills-bar" id="map-app-pills">
-                            <button class="app-pill active" data-app="ALL" title="View all 820 calibration tables">
-                                All <span class="app-pill-count">820</span>
+                            <button class="app-pill active" data-app="ALL" title="View all calibration tables">
+                                All <span class="app-pill-count" id="pill-cnt-all">-</span>
                             </button>
-                            <button class="app-pill pill-live" data-app="LIVE_ACTUATOR" title="Actively modulates engine hardware">
-                                Live Actuator <span class="app-pill-count">512</span>
+                            <button class="app-pill pill-live" data-app="LIVE_ACTUATOR" title="Actively modulates hardware">
+                                Live Actuator <span class="app-pill-count" id="pill-cnt-live">-</span>
                             </button>
-                            <button class="app-pill pill-dead" data-app="DEAD_INACTIVE" title="Inapplicable maps: optimal spark & unreferenced tables that do not apply to this ECU">
-                                Inapplicable / Dead <span class="app-pill-count">258</span>
+                            <button class="app-pill pill-dead" data-app="DEAD_INACTIVE" title="Inapplicable / dead or identity tables">
+                                <span id="pill-lbl-dead">Inapplicable / Dead</span> <span class="app-pill-count" id="pill-cnt-dead">-</span>
                             </button>
-                            <button class="app-pill pill-torque" data-app="TORQUE_MODEL_REF" title="Torque model calculation reference tables">
-                                Torque Ref <span class="app-pill-count">40</span>
+                            <button class="app-pill pill-torque" data-app="TORQUE_MODEL_REF" title="Torque model reference or breakpoint axes">
+                                <span id="pill-lbl-torque">Torque Ref</span> <span class="app-pill-count" id="pill-cnt-torque">-</span>
                             </button>
-                            <button class="app-pill pill-gated" data-app="GATED_DISABLED" title="Gated / bypassed calibration tables">
-                                Gated <span class="app-pill-count">10</span>
+                            <button class="app-pill pill-gated" data-app="GATED_DISABLED" title="Gated / diagnostic tables">
+                                <span id="pill-lbl-gated">Gated</span> <span class="app-pill-count" id="pill-cnt-gated">-</span>
                             </button>
                         </div>
 
