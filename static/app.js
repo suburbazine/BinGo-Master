@@ -605,7 +605,10 @@ const surface3dState = {
     yaw: -0.68,
     pitch: 0.52,
     zoom: 1.0,
+    panX: 0,
+    panY: 0,
     isDragging: false,
+    dragAction: 'rotate',
     dragStartX: 0,
     dragStartY: 0,
     movedDist: 0,
@@ -616,6 +619,11 @@ const surface3dState = {
     lastShowPhys: true,
     lastUseHeatmap: true
 };
+
+function getSurface3dDragMode() {
+    const checked = document.querySelector('input[name="surface3d-drag-mode"]:checked');
+    return checked ? checked.value : 'rotate';
+}
 
 function initSurface3D() {
     const canvas = document.getElementById('map-surface3d-canvas');
@@ -629,6 +637,8 @@ function initSurface3D() {
             surface3dState.yaw = -0.68;
             surface3dState.pitch = 0.52;
             surface3dState.zoom = 1.0;
+            surface3dState.panX = 0;
+            surface3dState.panY = 0;
             if (currentMapData) renderMapGrid(currentMapData);
         });
     }
@@ -639,11 +649,26 @@ function initSurface3D() {
         });
     }
 
+    document.querySelectorAll('input[name="surface3d-drag-mode"]').forEach(r => {
+        r.addEventListener('change', () => {
+            canvas.style.cursor = getSurface3dDragMode() === 'pan' ? 'move' : 'grab';
+        });
+    });
+
+    canvas.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+    });
+
     canvas.addEventListener('mousedown', (e) => {
         surface3dState.isDragging = true;
+        const isPanTrigger = (e.button === 2 || e.button === 1 || e.shiftKey || getSurface3dDragMode() === 'pan');
+        surface3dState.dragAction = isPanTrigger ? 'pan' : 'rotate';
         surface3dState.dragStartX = e.clientX;
         surface3dState.dragStartY = e.clientY;
         surface3dState.movedDist = 0;
+        if (isPanTrigger) {
+            e.preventDefault();
+        }
     });
 
     window.addEventListener('mousemove', (e) => {
@@ -656,8 +681,13 @@ function initSurface3D() {
             surface3dState.dragStartX = e.clientX;
             surface3dState.dragStartY = e.clientY;
 
-            surface3dState.yaw += dx * 0.0085;
-            surface3dState.pitch = Math.max(0.08, Math.min(1.48, surface3dState.pitch + dy * 0.0085));
+            if (surface3dState.dragAction === 'pan') {
+                surface3dState.panX += dx;
+                surface3dState.panY += dy;
+            } else {
+                surface3dState.yaw += dx * 0.0085;
+                surface3dState.pitch = Math.max(0.08, Math.min(1.48, surface3dState.pitch + dy * 0.0085));
+            }
             if (tooltip) tooltip.style.display = 'none';
             renderSurface3D(currentMapData, surface3dState.lastMinVal, surface3dState.lastMaxVal, surface3dState.lastShowPhys, surface3dState.lastUseHeatmap);
             return;
@@ -715,18 +745,38 @@ function initSurface3D() {
         }
     });
 
-    window.addEventListener('mouseup', () => {
+    window.addEventListener('mouseup', (e) => {
         if (!surface3dState.isDragging) return;
+        const wasLeftClick = (e.button === 0);
         surface3dState.isDragging = false;
-        if (surface3dState.movedDist < 6 && surface3dState.hoveredVertex) {
+        if (wasLeftClick && surface3dState.movedDist < 6 && surface3dState.hoveredVertex) {
             openCellEditModal(surface3dState.hoveredVertex.r, surface3dState.hoveredVertex.c);
         }
     });
 
     canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
-        const factor = e.deltaY < 0 ? 1.1 : 0.91;
-        surface3dState.zoom = Math.max(0.45, Math.min(2.6, surface3dState.zoom * factor));
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const baseCx = rect.width * 0.5;
+        const baseCy = rect.height * 0.5;
+
+        const oldZoom = surface3dState.zoom;
+        const factor = e.deltaY < 0 ? 1.12 : 0.89;
+        const newZoom = Math.max(0.35, Math.min(4.5, oldZoom * factor));
+        const zoomRatio = newZoom / oldZoom;
+
+        // Anchor zoom around the mouse cursor position so the target region stays in view
+        const curCx = baseCx + surface3dState.panX;
+        const curCy = baseCy + surface3dState.panY;
+        const nextCx = mx - (mx - curCx) * zoomRatio;
+        const nextCy = my - (my - curCy) * zoomRatio;
+
+        surface3dState.panX = nextCx - baseCx;
+        surface3dState.panY = nextCy - baseCy;
+        surface3dState.zoom = newZoom;
+
         if (currentMapData) {
             renderSurface3D(currentMapData, surface3dState.lastMinVal, surface3dState.lastMaxVal, surface3dState.lastShowPhys, surface3dState.lastUseHeatmap);
         }
@@ -773,13 +823,13 @@ function renderSurface3D(data, minVal, maxVal, showPhysical, useHeatmap) {
     const sinP = Math.sin(surface3dState.pitch);
 
     const scale = Math.min(width, height) * 0.36 * surface3dState.zoom;
-    const cx = width * 0.5;
-    const cy = height * 0.56;
+    const cx = width * 0.5 + surface3dState.panX;
+    const cy = height * 0.5 + surface3dState.panY;
     const zHeightScale = 0.85;
 
     // Project normalized coordinates: nx in [-1, 1], ny in [-1, 1], nz in [0, 1]
     function project3D(nx, ny, nz) {
-        const hz = (nz - 0.35) * zHeightScale;
+        const hz = (nz - 0.5) * zHeightScale;
         const x1 = nx * cosY - ny * sinY;
         const y1 = nx * sinY + ny * cosY;
         const sx = cx + x1 * scale;

@@ -271,8 +271,18 @@
 
                         <div class="surface3d-wrapper" id="map-surface3d-wrapper" style="display:none;">
                             <div class="surface3d-toolbar">
-                                <span class="surface3d-hint"><strong>3D Surface Plot:</strong> Drag to rotate &bull; Scroll to zoom &bull; Click any vertex node to edit cell</span>
-                                <div style="display:flex; align-items:center; gap:8px;">
+                                <span class="surface3d-hint"><strong>3D Surface Plot:</strong> Drag: Rotate &bull; Right-Drag / Shift-Drag: Pan &bull; Scroll: Zoom to cursor &bull; Click node: Edit</span>
+                                <div style="display:flex; align-items:center; gap:10px;">
+                                    <div class="view-mode-switch" style="padding:1px;">
+                                        <label class="view-mode-pill" title="Left-click drag rotates the 3D surface">
+                                            <input type="radio" name="surface3d-drag-mode" value="rotate" checked>
+                                            <span style="padding:1px 7px; font-size:10px;">Rotate</span>
+                                        </label>
+                                        <label class="view-mode-pill" title="Left-click drag pans/moves the 3D surface inside the viewport">
+                                            <input type="radio" name="surface3d-drag-mode" value="pan">
+                                            <span style="padding:1px 7px; font-size:10px;">Pan / Move</span>
+                                        </label>
+                                    </div>
                                     <label style="font-size:11px; color:var(--text-muted); cursor:pointer; display:flex; align-items:center; gap:4px;">
                                         <input type="checkbox" id="toggle-3d-wireframe" checked> Mesh Lines
                                     </label>
