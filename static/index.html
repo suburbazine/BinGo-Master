@@ -194,11 +194,11 @@
                         </div>
                         <div class="select-row">
                             <select id="map-type-filter">
-                                <option value="ALL">All Table Types (2D, 1D, Scalars)</option>
-                                <option value="eZweidim">eZweidim (2D Table)</option>
-                                <option value="eZweiInv">eZweiInv (Inverted 2D)</option>
-                                <option value="eEindim">eEindim (1D Curve)</option>
-                                <option value="eEinzel">eEinzel (Scalar)</option>
+                                <option value="ALL">All Table Types (3D Surface Maps, 1D Curves, Scalars)</option>
+                                <option value="eZweidim">2D / 3D Surface Map (X×Y→Z / eZweidim)</option>
+                                <option value="eZweiInv">Inverted Surface Map (eZweiInv)</option>
+                                <option value="eEindim">1D Curve / Axis (X→Y / eEindim)</option>
+                                <option value="eEinzel">Scalar / Constant (eEinzel)</option>
                             </select>
                             <input type="hidden" id="map-app-filter" value="ALL">
                         </div>
@@ -216,7 +216,7 @@
                     <div id="map-editor-placeholder" class="empty-state">
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"></path><path d="M19 9l-5 5-4-4-3 3"></path></svg>
                         <h3>Select a calibration map from the list</h3>
-                        <p>Search through all 820 tables, curves, and scalars from the Continental SIM2K-260 mappack.</p>
+                        <p>Inspect and edit calibration tables in 2D Rainbow Grid or interactive 3D Surface view.</p>
                     </div>
 
                     <div id="map-editor-content" class="map-editor" style="display:none;">
@@ -236,6 +236,10 @@
                                 </div>
                             </div>
                             <div class="editor-actions">
+                                <div class="unit-toggle" id="view-mode-toggle" style="background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.35);">
+                                    <label style="color: #6ee7b7; font-weight: 600;"><input type="radio" name="map-view-mode" value="grid" checked> 2D Grid</label>
+                                    <label style="color: #6ee7b7; font-weight: 600;"><input type="radio" name="map-view-mode" value="surface3d"> 3D Surface</label>
+                                </div>
                                 <div class="unit-toggle">
                                     <label><input type="radio" name="val-display" value="physical" checked> Scaled Physical</label>
                                     <label><input type="radio" name="val-display" value="raw"> Raw Hex/Int</label>
@@ -259,10 +263,26 @@
                         <!-- Rainbow Heatmap Scale Legend -->
                         <div id="map-heatmap-legend" class="map-heatmap-legend" style="display:none;"></div>
 
-                        <div class="grid-wrapper">
+                        <div class="grid-wrapper" id="map-grid-wrapper">
                             <table class="grid-table" id="map-grid">
                                 <!-- Dynamic 2D grid -->
                             </table>
+                        </div>
+
+                        <div class="surface3d-wrapper" id="map-surface3d-wrapper" style="display:none;">
+                            <div class="surface3d-toolbar">
+                                <span class="surface3d-hint"><strong>3D Surface Plot:</strong> Drag to rotate &bull; Scroll to zoom &bull; Click any vertex node to edit cell</span>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <label style="font-size:11px; color:var(--text-muted); cursor:pointer; display:flex; align-items:center; gap:4px;">
+                                        <input type="checkbox" id="toggle-3d-wireframe" checked> Mesh Lines
+                                    </label>
+                                    <button class="btn btn-sm btn-outline" id="btn-3d-reset-cam" style="padding:2px 8px; font-size:11px;">Reset View</button>
+                                </div>
+                            </div>
+                            <div class="surface3d-canvas-box">
+                                <canvas id="map-surface3d-canvas"></canvas>
+                                <div id="surface3d-tooltip" class="surface3d-tooltip" style="display:none;"></div>
+                            </div>
                         </div>
 
                         <div class="map-comment" id="cur-map-comment"></div>

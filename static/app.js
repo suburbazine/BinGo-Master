@@ -291,6 +291,13 @@ function initMaps() {
         searchMaps();
     });
 
+    document.querySelectorAll('input[name="map-view-mode"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            syncMapViewMode();
+            if (currentMapData) renderMapGrid(currentMapData);
+        });
+    });
+
     document.querySelectorAll('input[name="val-display"]').forEach(radio => {
         radio.addEventListener('change', () => {
             if (currentMapData) renderMapGrid(currentMapData);
@@ -303,6 +310,8 @@ function initMaps() {
             if (currentMapData) renderMapGrid(currentMapData);
         });
     }
+
+    initSurface3D();
 
     document.getElementById('btn-reset-map').addEventListener('click', async () => {
         if (!currentMapObj) return;
@@ -341,6 +350,19 @@ function initMaps() {
     initCellEditModal();
 
     searchMaps();
+}
+
+function getActiveMapViewMode() {
+    const checked = document.querySelector('input[name="map-view-mode"]:checked');
+    return checked ? checked.value : 'grid';
+}
+
+function syncMapViewMode() {
+    const mode = getActiveMapViewMode();
+    const gridWrap = document.getElementById('map-grid-wrapper');
+    const surfWrap = document.getElementById('map-surface3d-wrapper');
+    if (gridWrap) gridWrap.style.display = mode === 'grid' ? 'block' : 'none';
+    if (surfWrap) surfWrap.style.display = mode === 'surface3d' ? 'flex' : 'none';
 }
 
 function filterMapsByApp(appVal) {
@@ -472,6 +494,7 @@ async function loadMapDetail(mapID) {
             commentEl.style.display = 'none';
         }
 
+        syncMapViewMode();
         renderMapGrid(res);
     } catch (err) {
 
@@ -569,6 +592,392 @@ function renderMapGrid(data) {
             openCellEditModal(r, c);
         });
     });
+
+    if (getActiveMapViewMode() === 'surface3d') {
+        requestAnimationFrame(() => renderSurface3D(data, minVal, maxVal, showPhysical, useHeatmap));
+    }
+}
+
+/* =========================================================================
+   3B. INTERACTIVE 3D SURFACE / WIREFRAME RENDERER
+   ========================================================================= */
+const surface3dState = {
+    yaw: -0.68,
+    pitch: 0.52,
+    zoom: 1.0,
+    isDragging: false,
+    dragStartX: 0,
+    dragStartY: 0,
+    movedDist: 0,
+    hoveredVertex: null,
+    projectedVertices: [],
+    lastMinVal: 0,
+    lastMaxVal: 0,
+    lastShowPhys: true,
+    lastUseHeatmap: true
+};
+
+function initSurface3D() {
+    const canvas = document.getElementById('map-surface3d-canvas');
+    const resetBtn = document.getElementById('btn-3d-reset-cam');
+    const wireToggle = document.getElementById('toggle-3d-wireframe');
+    const tooltip = document.getElementById('surface3d-tooltip');
+    if (!canvas) return;
+
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            surface3dState.yaw = -0.68;
+            surface3dState.pitch = 0.52;
+            surface3dState.zoom = 1.0;
+            if (currentMapData) renderMapGrid(currentMapData);
+        });
+    }
+
+    if (wireToggle) {
+        wireToggle.addEventListener('change', () => {
+            if (currentMapData) renderMapGrid(currentMapData);
+        });
+    }
+
+    canvas.addEventListener('mousedown', (e) => {
+        surface3dState.isDragging = true;
+        surface3dState.dragStartX = e.clientX;
+        surface3dState.dragStartY = e.clientY;
+        surface3dState.movedDist = 0;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!currentMapData || getActiveMapViewMode() !== 'surface3d') return;
+
+        if (surface3dState.isDragging) {
+            const dx = e.clientX - surface3dState.dragStartX;
+            const dy = e.clientY - surface3dState.dragStartY;
+            surface3dState.movedDist += Math.hypot(dx, dy);
+            surface3dState.dragStartX = e.clientX;
+            surface3dState.dragStartY = e.clientY;
+
+            surface3dState.yaw += dx * 0.0085;
+            surface3dState.pitch = Math.max(0.08, Math.min(1.48, surface3dState.pitch + dy * 0.0085));
+            if (tooltip) tooltip.style.display = 'none';
+            renderSurface3D(currentMapData, surface3dState.lastMinVal, surface3dState.lastMaxVal, surface3dState.lastShowPhys, surface3dState.lastUseHeatmap);
+            return;
+        }
+
+        // Hover vertex detection
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        if (mx < 0 || my < 0 || mx > rect.width || my > rect.height) {
+            if (surface3dState.hoveredVertex) {
+                surface3dState.hoveredVertex = null;
+                if (tooltip) tooltip.style.display = 'none';
+                renderSurface3D(currentMapData, surface3dState.lastMinVal, surface3dState.lastMaxVal, surface3dState.lastShowPhys, surface3dState.lastUseHeatmap);
+            }
+            return;
+        }
+
+        let best = null;
+        let bestDist = 16;
+        for (const v of surface3dState.projectedVertices) {
+            const d = Math.hypot(v.sx - mx, v.sy - my);
+            if (d < bestDist) {
+                bestDist = d;
+                best = v;
+            }
+        }
+
+        const prev = surface3dState.hoveredVertex;
+        if ((best && !prev) || (!best && prev) || (best && prev && (best.r !== prev.r || best.c !== prev.c))) {
+            surface3dState.hoveredVertex = best;
+            renderSurface3D(currentMapData, surface3dState.lastMinVal, surface3dState.lastMaxVal, surface3dState.lastShowPhys, surface3dState.lastUseHeatmap);
+        }
+
+        if (best && tooltip) {
+            const xLbl = currentMapData.x_axis && currentMapData.x_axis[best.c] ? currentMapData.x_axis[best.c].label : `Col ${best.c}`;
+            const yLbl = currentMapData.y_axis && currentMapData.y_axis[best.r] ? currentMapData.y_axis[best.r].label : `Row ${best.r}`;
+            const unitStr = currentMapData.map.unit ? ` ${escapeHtml(currentMapData.map.unit)}` : '';
+            const modBadge = best.cell.is_modified ? ` <span style="color:#fbbf24;font-weight:700;">[EDITED]</span>` : '';
+            tooltip.innerHTML = `
+                <div style="color:var(--accent);font-weight:700;margin-bottom:2px;">[Row ${best.r}, Col ${best.c}]${modBadge}</div>
+                <div>X (${escapeHtml(currentMapData.map.axis_x_name || 'Col')}): <strong>${escapeHtml(xLbl)}</strong></div>
+                <div>Y (${escapeHtml(currentMapData.map.axis_y_name || 'Row')}): <strong>${escapeHtml(yLbl)}</strong></div>
+                <div>Physical: <strong style="color:#6ee7b7;">${best.cell.physical}${unitStr}</strong></div>
+                <div>Raw: <strong>${best.cell.raw}</strong> (0x${(best.cell.raw >>> 0).toString(16).toUpperCase()})</div>
+                <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">Click vertex to edit cell</div>
+            `;
+            tooltip.style.display = 'block';
+            const tx = Math.min(rect.width - 210, Math.max(10, best.sx + 14));
+            const ty = Math.min(rect.height - 115, Math.max(10, best.sy - 20));
+            tooltip.style.left = `${tx}px`;
+            tooltip.style.top = `${ty}px`;
+        } else if (tooltip) {
+            tooltip.style.display = 'none';
+        }
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (!surface3dState.isDragging) return;
+        surface3dState.isDragging = false;
+        if (surface3dState.movedDist < 6 && surface3dState.hoveredVertex) {
+            openCellEditModal(surface3dState.hoveredVertex.r, surface3dState.hoveredVertex.c);
+        }
+    });
+
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.1 : 0.91;
+        surface3dState.zoom = Math.max(0.45, Math.min(2.6, surface3dState.zoom * factor));
+        if (currentMapData) {
+            renderSurface3D(currentMapData, surface3dState.lastMinVal, surface3dState.lastMaxVal, surface3dState.lastShowPhys, surface3dState.lastUseHeatmap);
+        }
+    }, { passive: false });
+
+    window.addEventListener('resize', () => {
+        if (currentMapData && getActiveMapViewMode() === 'surface3d') {
+            renderSurface3D(currentMapData, surface3dState.lastMinVal, surface3dState.lastMaxVal, surface3dState.lastShowPhys, surface3dState.lastUseHeatmap);
+        }
+    });
+}
+
+function renderSurface3D(data, minVal, maxVal, showPhysical, useHeatmap) {
+    const canvas = document.getElementById('map-surface3d-canvas');
+    if (!canvas || !data || !data.cells) return;
+
+    surface3dState.lastMinVal = minVal;
+    surface3dState.lastMaxVal = maxVal;
+    surface3dState.lastShowPhys = showPhysical;
+    surface3dState.lastUseHeatmap = useHeatmap;
+
+    const box = canvas.parentElement;
+    const width = box.clientWidth || 720;
+    const height = box.clientHeight || 440;
+    const dpr = window.devicePixelRatio || 1;
+    if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
+        canvas.width = Math.floor(width * dpr);
+        canvas.height = Math.floor(height * dpr);
+    }
+
+    const ctx = canvas.getContext('2d');
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, height);
+
+    const cols = data.map.columns || 1;
+    const rows = data.map.rows || 1;
+    const wireToggle = document.getElementById('toggle-3d-wireframe');
+    const showWire = wireToggle ? wireToggle.checked : true;
+
+    const cosY = Math.cos(surface3dState.yaw);
+    const sinY = Math.sin(surface3dState.yaw);
+    const cosP = Math.cos(surface3dState.pitch);
+    const sinP = Math.sin(surface3dState.pitch);
+
+    const scale = Math.min(width, height) * 0.36 * surface3dState.zoom;
+    const cx = width * 0.5;
+    const cy = height * 0.56;
+    const zHeightScale = 0.85;
+
+    // Project normalized coordinates: nx in [-1, 1], ny in [-1, 1], nz in [0, 1]
+    function project3D(nx, ny, nz) {
+        const hz = (nz - 0.35) * zHeightScale;
+        const x1 = nx * cosY - ny * sinY;
+        const y1 = nx * sinY + ny * cosY;
+        const sx = cx + x1 * scale;
+        const sy = cy + (y1 * sinP - hz * cosP) * scale;
+        const depth = y1 * cosP + hz * sinP;
+        return { sx, sy, depth };
+    }
+
+    // 1. Draw 3D Base Floor & Bounding Box Axes
+    const c00 = project3D(-1, -1, 0);
+    const c10 = project3D(1, -1, 0);
+    const c11 = project3D(1, 1, 0);
+    const c01 = project3D(-1, 1, 0);
+    const c00Top = project3D(-1, -1, 1);
+
+    // Base floor fill
+    ctx.beginPath();
+    ctx.moveTo(c00.sx, c00.sy);
+    ctx.lineTo(c10.sx, c10.sy);
+    ctx.lineTo(c11.sx, c11.sy);
+    ctx.lineTo(c01.sx, c01.sy);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Base grid ticks (5 divisions)
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+    for (let i = 1; i < 4; i++) {
+        const t = -1 + (i / 4) * 2;
+        const pA = project3D(t, -1, 0);
+        const pB = project3D(t, 1, 0);
+        ctx.beginPath();
+        ctx.moveTo(pA.sx, pA.sy);
+        ctx.lineTo(pB.sx, pB.sy);
+        ctx.stroke();
+
+        const qA = project3D(-1, t, 0);
+        const qB = project3D(1, t, 0);
+        ctx.beginPath();
+        ctx.moveTo(qA.sx, qA.sy);
+        ctx.lineTo(qB.sx, qB.sy);
+        ctx.stroke();
+    }
+
+    // Vertical Z-axis pillar at (-1, -1)
+    ctx.beginPath();
+    ctx.moveTo(c00.sx, c00.sy);
+    ctx.lineTo(c00Top.sx, c00Top.sy);
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.font = '10px JetBrains Mono, monospace';
+    ctx.fillStyle = '#94a3b8';
+    const unitStr = data.map.unit ? ` ${data.map.unit}` : '';
+    for (let zTick = 0; zTick <= 2; zTick++) {
+        const zt = zTick / 2;
+        const zp = project3D(-1, -1, zt);
+        const zVal = minVal + zt * (maxVal - minVal);
+        const zStr = Number.isInteger(zVal) ? String(zVal) : zVal.toFixed(1);
+        ctx.fillText(`${zStr}${zTick === 2 ? unitStr : ''}`, zp.sx - 48, zp.sy + 3);
+    }
+
+    // X-Axis & Y-Axis edge labels
+    const xMid = project3D(0, 1.16, 0);
+    const yMid = project3D(1.16, 0, 0);
+    const xFirst = data.x_axis && data.x_axis[0] ? data.x_axis[0].label : '0';
+    const xLast = data.x_axis && data.x_axis[cols - 1] ? data.x_axis[cols - 1].label : String(cols - 1);
+    const yFirst = data.y_axis && data.y_axis[0] ? data.y_axis[0].label : '0';
+    const yLast = data.y_axis && data.y_axis[rows - 1] ? data.y_axis[rows - 1].label : String(rows - 1);
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText(`X: ${data.map.axis_x_name || 'Cols'} [${xFirst} .. ${xLast}]`, xMid.sx - 60, xMid.sy);
+    ctx.fillStyle = '#a78bfa';
+    ctx.fillText(`Y: ${data.map.axis_y_name || 'Rows'} [${yFirst} .. ${yLast}]`, yMid.sx + 6, yMid.sy);
+
+    // 2. Compute 3D Grid Vertices
+    const gridPts = [];
+    const projList = [];
+    const span = maxVal > minVal ? (maxVal - minVal) : 1;
+
+    for (let r = 0; r < rows; r++) {
+        gridPts[r] = [];
+        const ny = rows > 1 ? -1 + (r / (rows - 1)) * 2 : 0;
+        for (let c = 0; c < cols; c++) {
+            const nx = cols > 1 ? -1 + (c / (cols - 1)) * 2 : 0;
+            const cell = data.cells[r][c];
+            const val = showPhysical ? cell.physical : cell.raw;
+            const ratio = maxVal > minVal ? Math.max(0, Math.min(1, (val - minVal) / span)) : 0.5;
+            const p = project3D(nx, ny, ratio);
+            const vObj = { r, c, nx, ny, nz: ratio, val, ratio, sx: p.sx, sy: p.sy, depth: p.depth, cell };
+            gridPts[r][c] = vObj;
+            projList.push(vObj);
+        }
+    }
+    surface3dState.projectedVertices = projList;
+
+    // 3. Render Surface Quads (2D Map) or Extruded Ribbon (1D Curve)
+    if (rows >= 2 && cols >= 2) {
+        const quads = [];
+        for (let r = 0; r < rows - 1; r++) {
+            for (let c = 0; c < cols - 1; c++) {
+                const v00 = gridPts[r][c];
+                const v10 = gridPts[r][c + 1];
+                const v11 = gridPts[r + 1][c + 1];
+                const v01 = gridPts[r + 1][c];
+                const avgDepth = (v00.depth + v10.depth + v11.depth + v01.depth) * 0.25;
+                const avgRatio = (v00.ratio + v10.ratio + v11.ratio + v01.ratio) * 0.25;
+                quads.push({ v00, v10, v11, v01, avgDepth, avgRatio });
+            }
+        }
+
+        // Painter's algorithm: sort back-to-front (smaller depth drawn first)
+        quads.sort((a, b) => a.avgDepth - b.avgDepth);
+
+        for (const q of quads) {
+            ctx.beginPath();
+            ctx.moveTo(q.v00.sx, q.v00.sy);
+            ctx.lineTo(q.v10.sx, q.v10.sy);
+            ctx.lineTo(q.v11.sx, q.v11.sy);
+            ctx.lineTo(q.v01.sx, q.v01.sy);
+            ctx.closePath();
+
+            if (useHeatmap) {
+                const hue = (1.0 - q.avgRatio) * 240;
+                ctx.fillStyle = `hsla(${hue.toFixed(1)}, 84%, 44%, 0.78)`;
+                ctx.strokeStyle = showWire ? `hsla(${hue.toFixed(1)}, 92%, 68%, 0.65)` : `hsla(${hue.toFixed(1)}, 84%, 44%, 0.4)`;
+            } else {
+                ctx.fillStyle = 'rgba(30, 64, 175, 0.62)';
+                ctx.strokeStyle = showWire ? 'rgba(96, 165, 250, 0.65)' : 'rgba(30, 64, 175, 0.35)';
+            }
+            ctx.lineWidth = showWire ? 1.1 : 0.5;
+            ctx.fill();
+            ctx.stroke();
+        }
+    } else {
+        // 1D Curve or Scalar: draw extruded curtain to floor + glowing 3D line
+        const pts = projList;
+        if (pts.length >= 2) {
+            for (let i = 0; i < pts.length - 1; i++) {
+                const p0 = pts[i];
+                const p1 = pts[i + 1];
+                const b0 = project3D(p0.nx, p0.ny, 0);
+                const b1 = project3D(p1.nx, p1.ny, 0);
+                const avgRatio = (p0.ratio + p1.ratio) * 0.5;
+                const hue = (1.0 - avgRatio) * 240;
+
+                ctx.beginPath();
+                ctx.moveTo(b0.sx, b0.sy);
+                ctx.lineTo(p0.sx, p0.sy);
+                ctx.lineTo(p1.sx, p1.sy);
+                ctx.lineTo(b1.sx, b1.sy);
+                ctx.closePath();
+                ctx.fillStyle = useHeatmap ? `hsla(${hue.toFixed(1)}, 82%, 42%, 0.38)` : 'rgba(56, 189, 248, 0.25)';
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.moveTo(p0.sx, p0.sy);
+                ctx.lineTo(p1.sx, p1.sy);
+                ctx.strokeStyle = useHeatmap ? `hsla(${hue.toFixed(1)}, 92%, 62%, 0.95)` : '#38bdf8';
+                ctx.lineWidth = 2.5;
+                ctx.stroke();
+            }
+        }
+    }
+
+    // 4. Draw Vertex Nodes (Modified cells in Gold, Hovered cell with Target Ring)
+    const hov = surface3dState.hoveredVertex;
+    for (const v of projList) {
+        const isHov = hov && hov.r === v.r && hov.c === v.c;
+        const isMod = v.cell.is_modified;
+        if (!isHov && !isMod && projList.length > 400) continue;
+
+        ctx.beginPath();
+        const rad = isHov ? 5.5 : (isMod ? 4.2 : 2.2);
+        ctx.arc(v.sx, v.sy, rad, 0, Math.PI * 2);
+        if (isHov) {
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 2.2;
+            ctx.fill();
+            ctx.stroke();
+        } else if (isMod) {
+            ctx.fillStyle = '#fbbf24';
+            ctx.strokeStyle = '#0f172a';
+            ctx.lineWidth = 1.4;
+            ctx.fill();
+            ctx.stroke();
+        } else {
+            ctx.fillStyle = 'rgba(226, 232, 240, 0.65)';
+            ctx.fill();
+        }
+    }
+
+    ctx.restore();
 }
 
 let activeEditCell = null;

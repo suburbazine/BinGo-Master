@@ -859,6 +859,63 @@ body {
     min-width: 0;
 }
 
+.surface3d-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    background: radial-gradient(circle at 50% 45%, rgba(15, 23, 42, 0.95), rgba(2, 6, 23, 0.98));
+}
+
+.surface3d-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 16px;
+    background: rgba(15, 23, 42, 0.85);
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.surface3d-canvas-box {
+    flex: 1;
+    position: relative;
+    min-height: 360px;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+#map-surface3d-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: grab;
+}
+
+#map-surface3d-canvas:active {
+    cursor: grabbing;
+}
+
+.surface3d-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(9, 13, 22, 0.94);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-bright);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+    z-index: 30;
+    line-height: 1.45;
+    white-space: nowrap;
+}
+
 .grid-table {
     border-collapse: collapse;
     font-family: var(--font-mono);
