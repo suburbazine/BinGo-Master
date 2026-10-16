@@ -349,10 +349,10 @@ func (s *DBStore) GetMatrixInteractions(src, dst, accType string, limit, offset 
 // SearchMaps queries calibration maps by name, folder, file offset, EA, or applicability
 func (s *DBStore) SearchMaps(query, folder, mapType, applicability string, limit, offset int) ([]CalMap, int, error) {
 	if limit <= 0 {
-		limit = 50
+		limit = 250
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > 5000 {
+		limit = 5000
 	}
 
 	whereParts := []string{"1=1"}
@@ -426,7 +426,16 @@ func (s *DBStore) SearchMaps(query, folder, mapType, applicability string, limit
 		       COALESCE(applicability, 'LIVE_ACTUATOR'), COALESCE(applicability_note, '')
 		FROM cal_maps
 		WHERE %s
-		ORDER BY ea
+		ORDER BY
+			CASE COALESCE(applicability, 'LIVE_ACTUATOR')
+				WHEN 'LIVE_ACTUATOR' THEN 0
+				WHEN 'GATED_DISABLED' THEN 1
+				WHEN 'DIAGNOSTIC' THEN 2
+				WHEN 'DEAD_INACTIVE' THEN 3
+				WHEN 'IDENTITY' THEN 4
+				ELSE 5
+			END,
+			ea ASC
 		LIMIT ? OFFSET ?
 	`, whereClause)
 

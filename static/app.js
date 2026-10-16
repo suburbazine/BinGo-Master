@@ -349,8 +349,25 @@ function initMaps() {
     // Cell Edit Modal Handlers
     initCellEditModal();
 
+    const listEl = document.getElementById('map-list');
+    if (listEl) {
+        listEl.addEventListener('scroll', () => {
+            if (!mapListLoading && loadedMapItems.length < mapSearchTotal) {
+                if (listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 160) {
+                    loadMoreMaps(false);
+                }
+            }
+        });
+    }
+
     searchMaps();
 }
+
+const MAP_PAGE_SIZE = 250;
+let loadedMapItems = [];
+let mapSearchTotal = 0;
+let mapCurrentPage = 1;
+let mapListLoading = false;
 
 function getActiveMapViewMode() {
     const checked = document.querySelector('input[name="map-view-mode"]:checked');
@@ -379,6 +396,73 @@ function filterMapsByApp(appVal) {
     searchMaps();
 }
 
+function renderMapItemsHTML(mapsSlice) {
+    return mapsSlice.map(m => `
+        <div class="list-item ${currentMapObj && currentMapObj.id === m.id ? 'selected' : ''}" data-id="${m.id}">
+            <div class="list-item-title">
+                <span style="display:flex; align-items:center; gap:6px; overflow:hidden; text-overflow:ellipsis;">
+                    ${getApplicabilityBadge(m.applicability)}
+                    ${escapeHtml(m.name)}
+                </span>
+                <span class="badge info">${escapeHtml(m.map_type)}</span>
+            </div>
+            <div class="list-item-meta">
+                ${m.file_offset_hex} | ${m.columns}x${m.rows} ${m.data_org} | ${escapeHtml(m.unit || '-')}
+            </div>
+        </div>
+    `).join('');
+}
+
+function updateMapListMetaAndFooter() {
+    const countBadge = document.getElementById('map-count-badge');
+    const listEl = document.getElementById('map-list');
+    if (countBadge) {
+        if (loadedMapItems.length < mapSearchTotal) {
+            countBadge.innerHTML = `Showing <strong>${loadedMapItems.length.toLocaleString()}</strong> of <strong>${mapSearchTotal.toLocaleString()}</strong> maps &bull; <a href="#" id="lnk-load-all-maps" style="color:var(--accent); text-decoration:underline;">Load All</a>`;
+            const lnk = document.getElementById('lnk-load-all-maps');
+            if (lnk) {
+                lnk.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    loadMoreMaps(true);
+                });
+            }
+        } else {
+            countBadge.innerHTML = `Showing all <strong>${mapSearchTotal.toLocaleString()}</strong> maps`;
+        }
+    }
+
+    if (!listEl) return;
+    const oldFooter = document.getElementById('map-list-pager-footer');
+    if (oldFooter) oldFooter.remove();
+
+    if (loadedMapItems.length < mapSearchTotal) {
+        const remaining = mapSearchTotal - loadedMapItems.length;
+        const nextBatch = Math.min(MAP_PAGE_SIZE, remaining);
+        const footer = document.createElement('div');
+        footer.id = 'map-list-pager-footer';
+        footer.style.cssText = 'padding: 10px 12px; display: flex; gap: 8px; justify-content: center; border-top: 1px solid var(--border-subtle); background: rgba(15, 23, 42, 0.6);';
+        footer.innerHTML = `
+            <button class="btn btn-sm btn-secondary" id="btn-load-more-maps">Load +${nextBatch.toLocaleString()} More</button>
+            <button class="btn btn-sm btn-outline" id="btn-load-all-maps">Load All (${mapSearchTotal.toLocaleString()})</button>
+        `;
+        listEl.appendChild(footer);
+        document.getElementById('btn-load-more-maps').addEventListener('click', () => loadMoreMaps(false));
+        document.getElementById('btn-load-all-maps').addEventListener('click', () => loadMoreMaps(true));
+    }
+}
+
+function bindMapListClicks(container) {
+    container.querySelectorAll('.list-item:not([data-bound="1"])').forEach(item => {
+        item.setAttribute('data-bound', '1');
+        item.addEventListener('click', () => {
+            const id = parseInt(item.getAttribute('data-id'), 10);
+            container.querySelectorAll('.list-item').forEach(i => i.classList.remove('selected'));
+            item.classList.add('selected');
+            loadMapDetail(id);
+        });
+    });
+}
+
 async function searchMaps() {
     const q = document.getElementById('map-search').value.trim();
     const type = document.getElementById('map-type-filter').value;
@@ -386,42 +470,69 @@ async function searchMaps() {
     const listEl = document.getElementById('map-list');
     const countBadge = document.getElementById('map-count-badge');
 
+    loadedMapItems = [];
+    mapSearchTotal = 0;
+    mapCurrentPage = 1;
+    mapListLoading = true;
     listEl.innerHTML = '<div class="loading">Searching maps...</div>';
 
     try {
-        const res = await fetch(`/api/maps?q=${encodeURIComponent(q)}&type=${encodeURIComponent(type)}&applicability=${encodeURIComponent(app)}&limit=100`).then(r => r.json());
-        countBadge.innerText = `${res.total.toLocaleString()} maps found`;
+        const res = await fetch(`/api/maps?q=${encodeURIComponent(q)}&type=${encodeURIComponent(type)}&applicability=${encodeURIComponent(app)}&limit=${MAP_PAGE_SIZE}&page=1`).then(r => r.json());
+        mapSearchTotal = res.total || 0;
+        loadedMapItems = res.maps || [];
 
-        if (!res.maps || res.maps.length === 0) {
+        if (loadedMapItems.length === 0) {
+            if (countBadge) countBadge.innerText = '0 maps found';
             listEl.innerHTML = '<div class="empty-state"><p>No calibration maps found.</p></div>';
+            mapListLoading = false;
             return;
         }
 
-        listEl.innerHTML = res.maps.map(m => `
-            <div class="list-item ${currentMapObj && currentMapObj.id === m.id ? 'selected' : ''}" data-id="${m.id}">
-                <div class="list-item-title">
-                    <span style="display:flex; align-items:center; gap:6px; overflow:hidden; text-overflow:ellipsis;">
-                        ${getApplicabilityBadge(m.applicability)}
-                        ${escapeHtml(m.name)}
-                    </span>
-                    <span class="badge info">${escapeHtml(m.map_type)}</span>
-                </div>
-                <div class="list-item-meta">
-                    ${m.file_offset_hex} | ${m.columns}x${m.rows} ${m.data_org} | ${escapeHtml(m.unit || '-')}
-                </div>
-            </div>
-        `).join('');
-
-        listEl.querySelectorAll('.list-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const id = parseInt(item.getAttribute('data-id'), 10);
-                listEl.querySelectorAll('.list-item').forEach(i => i.classList.remove('selected'));
-                item.classList.add('selected');
-                loadMapDetail(id);
-            });
-        });
+        listEl.innerHTML = renderMapItemsHTML(loadedMapItems);
+        bindMapListClicks(listEl);
+        updateMapListMetaAndFooter();
     } catch (err) {
         listEl.innerHTML = `<div class="empty-state" style="color:var(--red);">Error: ${escapeHtml(err.message)}</div>`;
+    } finally {
+        mapListLoading = false;
+    }
+}
+
+async function loadMoreMaps(loadAll = false) {
+    if (mapListLoading || loadedMapItems.length >= mapSearchTotal) return;
+    mapListLoading = true;
+
+    const q = document.getElementById('map-search').value.trim();
+    const type = document.getElementById('map-type-filter').value;
+    const app = document.getElementById('map-app-filter') ? document.getElementById('map-app-filter').value : 'ALL';
+    const listEl = document.getElementById('map-list');
+
+    try {
+        if (loadAll) {
+            const res = await fetch(`/api/maps?q=${encodeURIComponent(q)}&type=${encodeURIComponent(type)}&applicability=${encodeURIComponent(app)}&limit=5000&page=1`).then(r => r.json());
+            const allMaps = res.maps || [];
+            const newSlice = allMaps.slice(loadedMapItems.length);
+            loadedMapItems = allMaps;
+            mapSearchTotal = res.total || allMaps.length;
+            const oldFooter = document.getElementById('map-list-pager-footer');
+            if (oldFooter) oldFooter.remove();
+            listEl.insertAdjacentHTML('beforeend', renderMapItemsHTML(newSlice));
+        } else {
+            mapCurrentPage += 1;
+            const res = await fetch(`/api/maps?q=${encodeURIComponent(q)}&type=${encodeURIComponent(type)}&applicability=${encodeURIComponent(app)}&limit=${MAP_PAGE_SIZE}&page=${mapCurrentPage}`).then(r => r.json());
+            const nextMaps = res.maps || [];
+            loadedMapItems = loadedMapItems.concat(nextMaps);
+            mapSearchTotal = res.total || mapSearchTotal;
+            const oldFooter = document.getElementById('map-list-pager-footer');
+            if (oldFooter) oldFooter.remove();
+            listEl.insertAdjacentHTML('beforeend', renderMapItemsHTML(nextMaps));
+        }
+        bindMapListClicks(listEl);
+        updateMapListMetaAndFooter();
+    } catch (err) {
+        console.error('Failed to load more maps:', err);
+    } finally {
+        mapListLoading = false;
     }
 }
 
