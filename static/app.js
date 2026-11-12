@@ -75,10 +75,11 @@ function initDashboard() {
 
 async function loadDashboard() {
     try {
-        const [statsRes, partsRes, matrixRes] = await Promise.all([
+        const [statsRes, partsRes, matrixRes, statusRes] = await Promise.all([
             fetch('/api/stats').then(r => r.json()),
             fetch('/api/partitions').then(r => r.json()),
-            fetch('/api/matrix').then(r => r.json())
+            fetch('/api/matrix').then(r => r.json()),
+            fetch('/api/status').then(r => r.json())
         ]);
 
         // Render Stats
@@ -97,48 +98,96 @@ async function loadDashboard() {
 
         const isAWD = Array.isArray(partsRes) && partsRes.some(p => p.name === 'CAL_DPP1');
         const isTCU = Array.isArray(partsRes) && partsRes.some(p => p.name === 'CAL_HEADER_DIR');
+        const isCustomDB = statusRes && statusRes.is_custom_db;
+        const dbName = (statusRes && statusRes.db_name) ? statusRes.db_name : 'flash_analysis.db';
+        const isSIM2K = dbName.toLowerCase() === 'flash_analysis.db';
+
         const deadLblEl = document.getElementById('stat-dead-maps-lbl');
         const deadMetaEl = document.getElementById('stat-dead-maps-meta');
-        if (deadLblEl) deadLblEl.innerText = (isAWD || isTCU) ? 'Identity / Static Maps' : 'Inapplicable / Dead Maps';
-        if (deadMetaEl) deadMetaEl.innerText = isTCU ? 'ECU IDs, SVN build tags & header descriptors' : (isAWD ? 'ECU IDs, headers & static blocks' : 'Optimal spark & unreferenced');
+        if (deadLblEl) deadLblEl.innerText = (isAWD || isTCU || isCustomDB) ? 'Identity / Static Maps' : 'Inapplicable / Dead Maps';
+        if (deadMetaEl) {
+            deadMetaEl.innerText = isTCU
+                ? 'ECU IDs, SVN build tags & header descriptors'
+                : ((isAWD || isCustomDB) ? 'ECU IDs, headers & unreferenced blocks' : 'Optimal spark & unreferenced');
+        }
+
+        const fnMetaEl = document.getElementById('stat-functions-meta');
+        if (fnMetaEl) fnMetaEl.innerText = isSIM2K ? 'TriCore 1.6.2 entry points' : 'Decoded firmware entry points';
+
+        const dflashMetaEl = document.getElementById('stat-dflash-meta');
+        if (dflashMetaEl) dflashMetaEl.innerText = isSIM2K ? '192 KB Ping-Pong wear-level' : 'EEPROM & identity blocks';
+
+        const fnDescEl = document.getElementById('fn-placeholder-desc');
+        if (fnDescEl) {
+            fnDescEl.innerText = statsRes.function_count > 0
+                ? `Browse ${statsRes.function_count.toLocaleString()} decoded functions in ${dbName}, examine callers, callees, and memory accesses.`
+                : `Browse decoded firmware functions in ${dbName}, examine callers, callees, and memory accesses.`;
+        }
+        const quickChipsEl = document.getElementById('fn-quick-jump-chips');
+        if (quickChipsEl) {
+            quickChipsEl.style.display = isSIM2K ? 'flex' : 'none';
+        }
 
         const partBadgeEl = document.getElementById('stat-partitions-badge');
         if (partBadgeEl) partBadgeEl.innerText = `${statsRes.partition_count || partsRes.length} Partitions`;
 
         const hdrPartTitle = document.getElementById('hdr-partitions-title');
         if (hdrPartTitle) {
-            hdrPartTitle.innerText = isTCU
-                ? 'Kefico CPTSH 8AT TCU Big-Endian Flash & Calibration Partitions (A8RE25R1 / 95441-4J571)'
-                : (isAWD
-                    ? 'Infineon XC2000 / C166 Flash & RAM Partitions (DPP0..DPP3)'
-                    : 'TC1797 / TC277 Flash Partitions & Memory Architecture');
+            if (isTCU) {
+                hdrPartTitle.innerText = 'Kefico CPTSH 8AT TCU Big-Endian Flash & Calibration Partitions (A8RE25R1 / 95441-4J571)';
+            } else if (isAWD) {
+                hdrPartTitle.innerText = 'Infineon XC2000 / C166 Flash & RAM Partitions (DPP0..DPP3)';
+            } else if (isCustomDB) {
+                hdrPartTitle.innerText = `${dbName} — Flash & Memory Partitions`;
+            } else {
+                hdrPartTitle.innerText = 'TC1797 / TC277 Flash Partitions & Memory Architecture';
+            }
         }
 
         // Sync Calibration Maps Applicability Filter Pills
         const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+        const cosCnt = statsRes.custom_os_map_count || 0;
         setTxt('pill-cnt-all', (statsRes.map_count || 0).toLocaleString());
+        setTxt('pill-cnt-cos', cosCnt.toLocaleString());
         setTxt('pill-cnt-live', (statsRes.live_map_count || 0).toLocaleString());
         setTxt('pill-cnt-dead', (statsRes.dead_map_count || 0).toLocaleString());
         setTxt('pill-cnt-torque', (statsRes.torque_map_count || 0).toLocaleString());
         setTxt('pill-cnt-gated', (statsRes.gated_map_count || 0).toLocaleString());
-        setTxt('pill-lbl-dead', (isAWD || isTCU) ? 'Identity / Static' : 'Inapplicable / Dead');
-        setTxt('pill-lbl-torque', isAWD ? 'Breakpoint Axes' : 'Torque Ref');
-        setTxt('pill-lbl-gated', (isAWD || isTCU) ? 'Diagnostic / DTC' : 'Gated');
+        setTxt('pill-lbl-dead', (isAWD || isTCU || isCustomDB) ? 'Identity / Static' : 'Inapplicable / Dead');
+        setTxt('pill-lbl-torque', (isAWD || isCustomDB) ? 'Axes / Ref' : 'Torque Ref');
+        setTxt('pill-lbl-gated', (isAWD || isTCU || isCustomDB) ? 'Diagnostic / DTC' : 'Gated');
+
+        const cosPill = document.getElementById('pill-cos-btn');
+        if (cosPill) {
+            cosPill.style.display = cosCnt > 0 ? 'inline-flex' : 'none';
+            const hiddenApp = document.getElementById('map-app-filter');
+            if (cosCnt === 0 && hiddenApp && hiddenApp.value === 'CUSTOM_OS') {
+                hiddenApp.value = 'ALL';
+                document.querySelectorAll('#map-app-pills .app-pill').forEach(p => {
+                    p.classList.toggle('active', p.getAttribute('data-app') === 'ALL');
+                });
+                searchMaps();
+            }
+        }
 
         // Render Partitions Table
         const partTbody = document.querySelector('#table-partitions tbody');
-        partTbody.innerHTML = partsRes.map(p => `
-            <tr>
-                <td class="mono">${p.id}</td>
-                <td><strong>${escapeHtml(p.name)}</strong></td>
-                <td class="mono">${p.start_ea_hex} .. ${p.end_ea_hex}</td>
-                <td><span class="badge info">${escapeHtml(p.memory_type)}</span></td>
-                <td class="mono">${p.size_kb > 0 ? p.size_kb.toLocaleString() + ' KB' : '-'}</td>
-                <td class="mono">${p.fn_count.toLocaleString()}</td>
-                <td class="mono">${p.insn_count.toLocaleString()}</td>
-                <td style="color:var(--text-muted);">${escapeHtml(p.description || '')}</td>
-            </tr>
-        `).join('');
+        if (!partsRes || partsRes.length === 0) {
+            partTbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding: 18px;">No partition table entries defined in this database.</td></tr>';
+        } else {
+            partTbody.innerHTML = partsRes.map(p => `
+                <tr>
+                    <td class="mono">${p.id}</td>
+                    <td><strong>${escapeHtml(p.name)}</strong></td>
+                    <td class="mono">${p.start_ea_hex} .. ${p.end_ea_hex}</td>
+                    <td><span class="badge info">${escapeHtml(p.memory_type)}</span></td>
+                    <td class="mono">${p.size_kb > 0 ? p.size_kb.toLocaleString() + ' KB' : '-'}</td>
+                    <td class="mono">${p.fn_count.toLocaleString()}</td>
+                    <td class="mono">${p.insn_count.toLocaleString()}</td>
+                    <td style="color:var(--text-muted);">${escapeHtml(p.description || '')}</td>
+                </tr>
+            `).join('');
+        }
 
         // Sync Disassembly Partition Filter Dropdown
         const partSelect = document.getElementById('fn-partition-filter');
@@ -369,17 +418,37 @@ let mapSearchTotal = 0;
 let mapCurrentPage = 1;
 let mapListLoading = false;
 
+let lastChosen3DStyle = 'surface3d';
+
 function getActiveMapViewMode() {
     const checked = document.querySelector('input[name="map-view-mode"]:checked');
-    return checked ? checked.value : 'grid';
+    const val = checked ? checked.value : 'grid';
+    if (val === 'surface3d' || val === 'bars3d') {
+        lastChosen3DStyle = val;
+    }
+    return val;
+}
+
+function is3DMapViewMode() {
+    const mode = getActiveMapViewMode();
+    return mode === 'surface3d' || mode === 'bars3d' || mode === 'split';
 }
 
 function syncMapViewMode() {
     const mode = getActiveMapViewMode();
+    const workspace = document.getElementById('map-editor-workspace');
     const gridWrap = document.getElementById('map-grid-wrapper');
     const surfWrap = document.getElementById('map-surface3d-wrapper');
-    if (gridWrap) gridWrap.style.display = mode === 'grid' ? 'block' : 'none';
-    if (surfWrap) surfWrap.style.display = mode === 'surface3d' ? 'flex' : 'none';
+    if (mode === 'split') {
+        if (workspace) workspace.classList.add('split-2d-3d');
+        if (gridWrap) gridWrap.style.display = 'block';
+        if (surfWrap) surfWrap.style.display = 'flex';
+    } else {
+        if (workspace) workspace.classList.remove('split-2d-3d');
+        const is3d = (mode === 'surface3d' || mode === 'bars3d');
+        if (gridWrap) gridWrap.style.display = !is3d ? 'block' : 'none';
+        if (surfWrap) surfWrap.style.display = is3d ? 'flex' : 'none';
+    }
 }
 
 function filterMapsByApp(appVal) {
@@ -550,7 +619,11 @@ async function loadMapDetail(mapID) {
         pendingEdits = [];
 
         // Meta headers
-        document.getElementById('cur-map-name').innerText = currentMapObj.name;
+        const nameEl = document.getElementById('cur-map-name');
+        if (nameEl) {
+            nameEl.innerText = currentMapObj.name;
+            nameEl.title = currentMapObj.name;
+        }
         document.getElementById('cur-map-folder').innerText = currentMapObj.folder || 'Root';
         document.getElementById('cur-map-offset').innerText = `File: ${currentMapObj.file_offset_hex}`;
         document.getElementById('cur-map-ea').innerText = `EA: ${currentMapObj.ea_hex}`;
@@ -568,14 +641,14 @@ async function loadMapDetail(mapID) {
         if (appNoteEl) {
             const app = currentMapObj.applicability || 'UNKNOWN';
             if (app === 'DEAD_INACTIVE') {
-                appNoteEl.innerHTML = `
-                    <div style="font-weight:700; margin-bottom: 2px;">⚠️ INAPPLICABLE / DEAD CALIBRATION MAP (DOES NOT APPLY TO THIS ECU)</div>
-                    <div>${escapeHtml(currentMapObj.applicability_note || 'This map (e.g. optimal spark angle / unreferenced subsystem) is not modulated by firmware on this SIM2K-260 family. Modifying this table will have zero physical effect on engine operation.')}</div>
-                `;
+                const fullDeadTxt = currentMapObj.applicability_note || 'This map (e.g. optimal spark angle / unreferenced subsystem) is not modulated by firmware on this ECU family. Modifying this table will have zero physical effect on operation.';
+                appNoteEl.innerHTML = `<strong>&#9888;&#65039; INAPPLICABLE / DEAD MAP:</strong> ${escapeHtml(fullDeadTxt)}`;
+                appNoteEl.title = fullDeadTxt;
                 appNoteEl.className = 'map-app-alert alert-dead_inactive';
                 appNoteEl.style.display = 'block';
             } else if (currentMapObj.applicability_note) {
-                appNoteEl.innerHTML = `<strong>Applicability Guidance:</strong> ${escapeHtml(currentMapObj.applicability_note)}`;
+                appNoteEl.innerHTML = `<strong>Guidance:</strong> ${escapeHtml(currentMapObj.applicability_note)}`;
+                appNoteEl.title = currentMapObj.applicability_note;
                 appNoteEl.className = `map-app-alert alert-${app.toLowerCase()}`;
                 appNoteEl.style.display = 'block';
             } else {
@@ -583,15 +656,15 @@ async function loadMapDetail(mapID) {
             }
         }
 
-        // Ref functions
+        // Ref functions (inline in header)
         const refsEl = document.getElementById('cur-map-refs');
         if (currentMapObj.ref_fn_list && currentMapObj.ref_fn_list.length > 0) {
-            refsEl.innerHTML = '<span>Referenced by Functions:</span> ' + currentMapObj.ref_fn_list.map(fn => {
+            refsEl.innerHTML = '<span style="color:var(--text-muted);">Refs:</span> ' + currentMapObj.ref_fn_list.map(fn => {
                 const eaMatch = fn.match(/fn_([0-9A-Fa-f]+)/);
                 const eaHex = eaMatch ? '0x' + eaMatch[1] : '';
                 return `<button class="ref-link" onclick="jumpToFunction('${eaHex}'); return false;">${escapeHtml(fn)}</button>`;
             }).join(' ');
-            refsEl.style.display = 'flex';
+            refsEl.style.display = 'inline-flex';
         } else {
             refsEl.style.display = 'none';
         }
@@ -599,7 +672,8 @@ async function loadMapDetail(mapID) {
         // Comment
         const commentEl = document.getElementById('cur-map-comment');
         if (currentMapObj.comment) {
-            commentEl.innerHTML = `<strong>Map Notes / Traced Logic:</strong> ${escapeHtml(currentMapObj.comment)}`;
+            commentEl.innerHTML = `<strong>Notes:</strong> ${escapeHtml(currentMapObj.comment)}`;
+            commentEl.title = currentMapObj.comment;
             commentEl.style.display = 'block';
         } else {
             commentEl.style.display = 'none';
@@ -615,6 +689,43 @@ async function loadMapDetail(mapID) {
 
 function renderMapGrid(data) {
     const grid = document.getElementById('map-grid');
+    const legendEl = document.getElementById('map-heatmap-legend');
+    const workspace = document.getElementById('map-editor-workspace');
+    const gridWrap = document.getElementById('map-grid-wrapper');
+    const surfWrap = document.getElementById('map-surface3d-wrapper');
+
+    // Handle missing companion .bin or out-of-range binary gracefully while preserving map metadata view
+    if (data.bin_error || !data.cells || data.cells.length === 0) {
+        if (legendEl) legendEl.style.display = 'none';
+        if (workspace) workspace.classList.remove('split-2d-3d');
+        if (surfWrap) surfWrap.style.display = 'none';
+        if (gridWrap) gridWrap.style.display = 'block';
+        grid.innerHTML = `
+            <tbody>
+                <tr>
+                    <td style="text-align:center; padding: 32px 24px; cursor: default; background: var(--bg-card);">
+                        <div style="font-weight: 700; color: var(--amber); font-size: 13px; margin-bottom: 6px;">
+                            Companion Binary (.bin) Required for Live Cell Values
+                        </div>
+                        <div style="color: var(--text-muted); font-family: var(--font-ui); font-size: 12px; margin-bottom: 14px;">
+                            ${escapeHtml(data.bin_error || 'Load a matching calibration or firmware .bin file to inspect and edit cell values.')}
+                        </div>
+                        <button type="button" class="btn btn-primary" id="btn-grid-load-bin">Load / Upload Companion .bin</button>
+                    </td>
+                </tr>
+            </tbody>
+        `;
+        const btnLoadBin = document.getElementById('btn-grid-load-bin');
+        if (btnLoadBin) {
+            btnLoadBin.addEventListener('click', () => {
+                const openBtn = document.getElementById('btn-open-bin-modal');
+                if (openBtn) openBtn.click();
+            });
+        }
+        return;
+    }
+
+    syncMapViewMode();
     const showPhysical = document.querySelector('input[name="val-display"]:checked').value === 'physical';
     const heatmapToggle = document.getElementById('toggle-heatmap');
     const useHeatmap = heatmapToggle ? heatmapToggle.checked : true;
@@ -638,7 +749,6 @@ function renderMapGrid(data) {
     if (!isFinite(maxVal)) maxVal = 0;
 
     // 2. Render Heatmap Legend Bar
-    const legendEl = document.getElementById('map-heatmap-legend');
     if (legendEl) {
         if (useHeatmap && maxVal > minVal) {
             legendEl.style.display = 'flex';
@@ -704,7 +814,7 @@ function renderMapGrid(data) {
         });
     });
 
-    if (getActiveMapViewMode() === 'surface3d') {
+    if (is3DMapViewMode()) {
         requestAnimationFrame(() => renderSurface3D(data, minVal, maxVal, showPhysical, useHeatmap));
     }
 }
@@ -783,7 +893,7 @@ function initSurface3D() {
     });
 
     window.addEventListener('mousemove', (e) => {
-        if (!currentMapData || getActiveMapViewMode() !== 'surface3d') return;
+        if (!currentMapData || !is3DMapViewMode()) return;
 
         if (surface3dState.isDragging) {
             const dx = e.clientX - surface3dState.dragStartX;
@@ -894,10 +1004,19 @@ function initSurface3D() {
     }, { passive: false });
 
     window.addEventListener('resize', () => {
-        if (currentMapData && getActiveMapViewMode() === 'surface3d') {
+        if (currentMapData && is3DMapViewMode()) {
             renderSurface3D(currentMapData, surface3dState.lastMinVal, surface3dState.lastMaxVal, surface3dState.lastShowPhys, surface3dState.lastUseHeatmap);
         }
     });
+
+    if (typeof ResizeObserver !== 'undefined' && canvas.parentElement) {
+        const ro = new ResizeObserver(() => {
+            if (currentMapData && is3DMapViewMode()) {
+                renderSurface3D(currentMapData, surface3dState.lastMinVal, surface3dState.lastMaxVal, surface3dState.lastShowPhys, surface3dState.lastUseHeatmap);
+            }
+        });
+        ro.observe(canvas.parentElement);
+    }
 }
 
 function renderSurface3D(data, minVal, maxVal, showPhysical, useHeatmap) {
@@ -910,8 +1029,8 @@ function renderSurface3D(data, minVal, maxVal, showPhysical, useHeatmap) {
     surface3dState.lastUseHeatmap = useHeatmap;
 
     const box = canvas.parentElement;
-    const width = box.clientWidth || 720;
-    const height = box.clientHeight || 440;
+    const width = Math.max(240, box.clientWidth || 720);
+    const height = Math.max(180, box.clientHeight || 420);
     const dpr = window.devicePixelRatio || 1;
     if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
         canvas.width = Math.floor(width * dpr);
@@ -933,23 +1052,62 @@ function renderSurface3D(data, minVal, maxVal, showPhysical, useHeatmap) {
     const cosP = Math.cos(surface3dState.pitch);
     const sinP = Math.sin(surface3dState.pitch);
 
-    const scale = Math.min(width, height) * 0.36 * surface3dState.zoom;
-    const cx = width * 0.5 + surface3dState.panX;
-    const cy = height * 0.5 + surface3dState.panY;
-    const zHeightScale = 0.85;
+    // Aspect-aware horizontal footprint + exact 2D bounding-box auto-fit so 100% of the 3D plot fills the canvas without clipping
+    const aspect = Math.max(0.75, Math.min(2.6, width / Math.max(height, 1)));
+    const xyStretch = Math.max(1.0, Math.min(1.42, Math.pow(aspect, 0.28)));
+    const zHeightScale = 0.95;
+
+    function rawProj(nx, ny, nz) {
+        const sx0 = nx * xyStretch;
+        const sy0 = ny * xyStretch;
+        const hz = nz * zHeightScale;
+        const x1 = sx0 * cosY - sy0 * sinY;
+        const y1 = sx0 * sinY + sy0 * cosY;
+        return {
+            ux: x1,
+            uy: y1 * sinP - hz * cosP,
+            depth: y1 * cosP + hz * sinP
+        };
+    }
+
+    let uMinX = Infinity, uMaxX = -Infinity, uMinY = Infinity, uMaxY = -Infinity;
+    const boundCorners = [
+        [-1.08, -1.08, 0], [1.08, -1.08, 0], [1.08, 1.08, 0], [-1.08, 1.08, 0],
+        [-1.08, -1.08, 1.04], [1.08, -1.08, 1.04], [1.08, 1.08, 1.04], [-1.08, 1.08, 1.04],
+        [0, 1.18, 0], [1.18, 0, 0]
+    ];
+    for (const [bx, by, bz] of boundCorners) {
+        const rp = rawProj(bx, by, bz);
+        if (rp.ux < uMinX) uMinX = rp.ux;
+        if (rp.ux > uMaxX) uMaxX = rp.ux;
+        if (rp.uy < uMinY) uMinY = rp.uy;
+        if (rp.uy > uMaxY) uMaxY = rp.uy;
+    }
+
+    const uSpanX = Math.max(0.5, uMaxX - uMinX);
+    const uSpanY = Math.max(0.5, uMaxY - uMinY);
+    const uMidX = (uMinX + uMaxX) * 0.5;
+    const uMidY = (uMinY + uMaxY) * 0.5;
+
+    const padLeft = 56, padRight = 56, padTop = 24, padBottom = 24;
+    const availW = Math.max(120, width - padLeft - padRight);
+    const availH = Math.max(110, height - padTop - padBottom);
+    const fitScale = Math.min(availW / uSpanX, availH / uSpanY);
+    const scale = fitScale * surface3dState.zoom;
+    const cx = padLeft + availW * 0.5 + surface3dState.panX;
+    const cy = padTop + availH * 0.5 + surface3dState.panY;
 
     // Project normalized coordinates: nx in [-1, 1], ny in [-1, 1], nz in [0, 1]
     function project3D(nx, ny, nz) {
-        const hz = (nz - 0.5) * zHeightScale;
-        const x1 = nx * cosY - ny * sinY;
-        const y1 = nx * sinY + ny * cosY;
-        const sx = cx + x1 * scale;
-        const sy = cy + (y1 * sinP - hz * cosP) * scale;
-        const depth = y1 * cosP + hz * sinP;
-        return { sx, sy, depth };
+        const r = rawProj(nx, ny, nz);
+        return {
+            sx: cx + (r.ux - uMidX) * scale,
+            sy: cy + (r.uy - uMidY) * scale,
+            depth: r.depth
+        };
     }
 
-    // 1. Draw 3D Base Floor & Bounding Box Axes
+    // 1. Draw 3D Base Floor, Back Reference Grid & Bounding Box Axes
     const c00 = project3D(-1, -1, 0);
     const c10 = project3D(1, -1, 0);
     const c11 = project3D(1, 1, 0);
@@ -963,14 +1121,14 @@ function renderSurface3D(data, minVal, maxVal, showPhysical, useHeatmap) {
     ctx.lineTo(c11.sx, c11.sy);
     ctx.lineTo(c01.sx, c01.sy);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.58)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.32)';
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Base grid ticks (5 divisions)
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+    // Base grid ticks (4x4 divisions)
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.14)';
     for (let i = 1; i < 4; i++) {
         const t = -1 + (i / 4) * 2;
         const pA = project3D(t, -1, 0);
@@ -988,42 +1146,83 @@ function renderSurface3D(data, minVal, maxVal, showPhysical, useHeatmap) {
         ctx.stroke();
     }
 
+    // Back-wall horizontal Z-height reference lines
+    for (let zTick = 1; zTick <= 4; zTick++) {
+        const zt = zTick / 4;
+        const w0 = project3D(-1, -1, zt);
+        const wX = project3D(1, -1, zt);
+        const wY = project3D(-1, 1, zt);
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.12)';
+        ctx.beginPath();
+        ctx.moveTo(wX.sx, wX.sy);
+        ctx.lineTo(w0.sx, w0.sy);
+        ctx.lineTo(wY.sx, wY.sy);
+        ctx.stroke();
+    }
+
     // Vertical Z-axis pillar at (-1, -1)
     ctx.beginPath();
     ctx.moveTo(c00.sx, c00.sy);
     ctx.lineTo(c00Top.sx, c00Top.sy);
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.65)';
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    ctx.font = '10px JetBrains Mono, monospace';
+    ctx.font = '10px JetBrains Mono, Consolas, monospace';
     ctx.fillStyle = '#94a3b8';
     const unitStr = data.map.unit ? ` ${data.map.unit}` : '';
-    for (let zTick = 0; zTick <= 2; zTick++) {
-        const zt = zTick / 2;
+    for (let zTick = 0; zTick <= 4; zTick++) {
+        const zt = zTick / 4;
         const zp = project3D(-1, -1, zt);
         const zVal = minVal + zt * (maxVal - minVal);
         const zStr = Number.isInteger(zVal) ? String(zVal) : zVal.toFixed(1);
-        ctx.fillText(`${zStr}${zTick === 2 ? unitStr : ''}`, zp.sx - 48, zp.sy + 3);
+        ctx.textAlign = 'right';
+        ctx.fillText(`${zStr}${zTick === 4 ? unitStr : ''}`, zp.sx - 6, zp.sy + 3);
+    }
+    ctx.textAlign = 'left';
+
+    // X-Axis & Y-Axis breakpoint ticks + titles
+    const xSteps = Math.min(cols, 5);
+    if (cols > 1) {
+        ctx.fillStyle = '#7dd3fc';
+        for (let i = 0; i < xSteps; i++) {
+            const cIdx = Math.round((i / Math.max(1, xSteps - 1)) * (cols - 1));
+            const nx = -1 + (cIdx / (cols - 1)) * 2;
+            const tp = project3D(nx, 1.07, 0);
+            const lbl = data.x_axis && data.x_axis[cIdx] ? data.x_axis[cIdx].label : String(cIdx);
+            ctx.fillText(lbl, tp.sx - 10, tp.sy + 4);
+        }
+    }
+    const ySteps = Math.min(rows, 5);
+    if (rows > 1) {
+        ctx.fillStyle = '#c4b5fd';
+        for (let i = 0; i < ySteps; i++) {
+            const rIdx = Math.round((i / Math.max(1, ySteps - 1)) * (rows - 1));
+            const ny = -1 + (rIdx / (rows - 1)) * 2;
+            const tp = project3D(1.07, ny, 0);
+            const lbl = data.y_axis && data.y_axis[rIdx] ? data.y_axis[rIdx].label : String(rIdx);
+            ctx.fillText(lbl, tp.sx + 4, tp.sy + 3);
+        }
     }
 
-    // X-Axis & Y-Axis edge labels
-    const xMid = project3D(0, 1.16, 0);
-    const yMid = project3D(1.16, 0, 0);
+    const xMid = project3D(0, 1.19, 0);
+    const yMid = project3D(1.19, 0, 0);
     const xFirst = data.x_axis && data.x_axis[0] ? data.x_axis[0].label : '0';
     const xLast = data.x_axis && data.x_axis[cols - 1] ? data.x_axis[cols - 1].label : String(cols - 1);
     const yFirst = data.y_axis && data.y_axis[0] ? data.y_axis[0].label : '0';
     const yLast = data.y_axis && data.y_axis[rows - 1] ? data.y_axis[rows - 1].label : String(rows - 1);
 
+    ctx.font = 'bold 10.5px JetBrains Mono, Consolas, monospace';
     ctx.fillStyle = '#38bdf8';
-    ctx.fillText(`X: ${data.map.axis_x_name || 'Cols'} [${xFirst} .. ${xLast}]`, xMid.sx - 60, xMid.sy);
+    ctx.fillText(`X: ${data.map.axis_x_name || 'Cols'} [${xFirst}..${xLast}]`, xMid.sx - 55, xMid.sy + 10);
     ctx.fillStyle = '#a78bfa';
-    ctx.fillText(`Y: ${data.map.axis_y_name || 'Rows'} [${yFirst} .. ${yLast}]`, yMid.sx + 6, yMid.sy);
+    ctx.fillText(`Y: ${data.map.axis_y_name || 'Rows'} [${yFirst}..${yLast}]`, yMid.sx + 8, yMid.sy + 10);
 
     // 2. Compute 3D Grid Vertices
     const gridPts = [];
     const projList = [];
     const span = maxVal > minVal ? (maxVal - minVal) : 1;
+    let sumVal = 0;
 
     for (let r = 0; r < rows; r++) {
         gridPts[r] = [];
@@ -1032,6 +1231,7 @@ function renderSurface3D(data, minVal, maxVal, showPhysical, useHeatmap) {
             const nx = cols > 1 ? -1 + (c / (cols - 1)) * 2 : 0;
             const cell = data.cells[r][c];
             const val = showPhysical ? cell.physical : cell.raw;
+            sumVal += (Number(val) || 0);
             const ratio = maxVal > minVal ? Math.max(0, Math.min(1, (val - minVal) / span)) : 0.5;
             const p = project3D(nx, ny, ratio);
             const vObj = { r, c, nx, ny, nz: ratio, val, ratio, sx: p.sx, sy: p.sy, depth: p.depth, cell };
@@ -1041,8 +1241,68 @@ function renderSurface3D(data, minVal, maxVal, showPhysical, useHeatmap) {
     }
     surface3dState.projectedVertices = projList;
 
-    // 3. Render Surface Quads (2D Map) or Extruded Ribbon (1D Curve)
-    if (rows >= 2 && cols >= 2) {
+    // Top-left compact HUD stats overlay
+    const meanVal = projList.length > 0 ? (sumVal / projList.length) : 0;
+    const fmtHud = (v) => Number.isInteger(v) ? String(v) : v.toFixed(2);
+    ctx.font = '10.5px JetBrains Mono, Consolas, monospace';
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.28)';
+    ctx.lineWidth = 1;
+    const hudTxt = `${cols}×${rows} (${projList.length} cells)  |  Min: ${fmtHud(minVal)}${unitStr}  |  Max: ${fmtHud(maxVal)}${unitStr}  |  Avg: ${fmtHud(meanVal)}${unitStr}`;
+    const hudW = Math.min(width - 16, ctx.measureText(hudTxt).width + 16);
+    ctx.fillRect(8, 6, hudW, 20);
+    ctx.strokeRect(8, 6, hudW, 20);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText(hudTxt, 16, 19);
+
+    // 3. Render 3D Colored Bar Towers ('bars3d'), Surface Quads ('surface3d'), or Extruded Ribbon (1D Curve)
+    const rawMode3D = getActiveMapViewMode();
+    const viewMode3D = rawMode3D === 'split' ? lastChosen3DStyle : rawMode3D;
+    if (viewMode3D === 'bars3d') {
+        const hw = Math.min(0.68 / Math.max(cols, 1), 0.12);
+        const hd = Math.min(0.68 / Math.max(rows, 1), 0.12);
+        const sortedBars = [...projList].sort((a, b) => a.depth - b.depth);
+        for (const v of sortedBars) {
+            const zTop = Math.max(0.02, v.nz);
+            const b00 = project3D(v.nx - hw, v.ny - hd, 0);
+            const b10 = project3D(v.nx + hw, v.ny - hd, 0);
+            const b11 = project3D(v.nx + hw, v.ny + hd, 0);
+            const b01 = project3D(v.nx - hw, v.ny + hd, 0);
+            const t00 = project3D(v.nx - hw, v.ny - hd, zTop);
+            const t10 = project3D(v.nx + hw, v.ny - hd, zTop);
+            const t11 = project3D(v.nx + hw, v.ny + hd, zTop);
+            const t01 = project3D(v.nx - hw, v.ny + hd, zTop);
+
+            const hue = (1.0 - v.ratio) * 240;
+            const sideFillA = useHeatmap ? `hsla(${hue.toFixed(1)}, 82%, 34%, 0.86)` : 'rgba(30, 64, 175, 0.78)';
+            const sideFillB = useHeatmap ? `hsla(${hue.toFixed(1)}, 82%, 26%, 0.86)` : 'rgba(23, 37, 84, 0.82)';
+            const topFill = useHeatmap ? `hsla(${hue.toFixed(1)}, 90%, 52%, 0.94)` : 'rgba(56, 189, 248, 0.88)';
+            const strokeCol = v.cell.is_modified
+                ? '#fbbf24'
+                : (showWire ? (useHeatmap ? `hsla(${hue.toFixed(1)}, 95%, 72%, 0.75)` : 'rgba(147, 197, 253, 0.7)') : 'transparent');
+
+            const drawFace = (p1, p2, p3, p4, fill) => {
+                ctx.beginPath();
+                ctx.moveTo(p1.sx, p1.sy);
+                ctx.lineTo(p2.sx, p2.sy);
+                ctx.lineTo(p3.sx, p3.sy);
+                ctx.lineTo(p4.sx, p4.sy);
+                ctx.closePath();
+                ctx.fillStyle = fill;
+                ctx.fill();
+                if (showWire || v.cell.is_modified) {
+                    ctx.strokeStyle = strokeCol;
+                    ctx.lineWidth = v.cell.is_modified ? 1.5 : 0.8;
+                    ctx.stroke();
+                }
+            };
+
+            drawFace(b01, b11, t11, t01, sideFillA);
+            drawFace(b10, b11, t11, t10, sideFillB);
+            drawFace(b00, b01, t01, t00, sideFillB);
+            drawFace(t00, t10, t11, t01, topFill);
+        }
+    } else if (rows >= 2 && cols >= 2) {
         const quads = [];
         for (let r = 0; r < rows - 1; r++) {
             for (let c = 0; c < cols - 1; c++) {
@@ -1237,11 +1497,24 @@ async function loadDFlash() {
             fetch(`/api/dflash/blocks?category=${encodeURIComponent(activeDFlashCat)}`).then(r => r.json())
         ]);
 
-        // Sector cards
-        const s1 = secRes.find(s => s.sector_index === 1);
-        const s0 = secRes.find(s => s.sector_index === 0);
-        if (s1) document.getElementById('sector-1-stats').innerText = `${s1.active_blocks} Active Blocks (${s1.block_count} total instances)`;
-        if (s0) document.getElementById('sector-0-stats').innerText = `${s0.active_blocks} Shadow Blocks (${s0.block_count} total instances)`;
+        // Sector cards (dynamic across SIM2K, AWD, TCU, and custom DBs)
+        const secGrid = document.querySelector('.dflash-overview-grid');
+        if (secGrid) {
+            if (!secRes || secRes.length === 0) {
+                secGrid.style.display = 'none';
+            } else {
+                secGrid.style.display = 'grid';
+                secGrid.innerHTML = secRes.map((s, idx) => `
+                    <div class="sector-card ${idx === 0 ? 'active-sector' : 'passive-sector'}">
+                        <div class="sector-badge">${idx === 0 ? 'ACTIVE / PRIMARY' : 'SECONDARY / SHADOW'}</div>
+                        <h3>${escapeHtml(s.name)}</h3>
+                        <div class="sector-range">0x${(s.start_offset || 0).toString(16).toUpperCase().padStart(5, '0')} .. 0x${(s.end_offset || 0).toString(16).toUpperCase().padStart(5, '0')} (${s.size_kb || 0} KB)</div>
+                        <p>${escapeHtml(s.status || '')}</p>
+                        <div class="sector-stats">${s.active_blocks} Active Blocks (${s.block_count} total instances)</div>
+                    </div>
+                `).join('');
+            }
+        }
 
         // Table
         const tbody = document.querySelector('#table-dflash-blocks tbody');
@@ -1804,7 +2077,12 @@ async function loadDiffsModal() {
 }
 
 async function exportBinary() {
-    const outputPath = prompt('Enter destination output path for exported binary:', 'Claude_Bins/web_editor_export.bin');
+    let defaultOut = 'Claude_Bins/web_editor_export.bin';
+    if (activeBinNameCache) {
+        const stem = activeBinNameCache.replace(/\.bin$/i, '');
+        defaultOut = `Claude_Bins/${stem}_edited.bin`;
+    }
+    const outputPath = prompt('Enter destination output path for exported binary:', defaultOut);
     if (!outputPath) return;
 
     try {
@@ -1815,7 +2093,7 @@ async function exportBinary() {
         }).then(r => r.json());
 
         if (res.success) {
-            alert(`Binary export SUCCESS!\n\nDestination: ${res.output_path}\nCalculated Launch-Gate CRC: ${res.crc_hex}\n${res.launch_gate}`);
+            alert(`Binary export SUCCESS!\n\nDestination: ${res.output_path}\nChecksum / CRC-32: ${res.crc_hex}\n${res.launch_gate}`);
         } else {
             alert(`Export failed: ${res.error}`);
         }
@@ -1825,10 +2103,66 @@ async function exportBinary() {
 }
 
 /* =========================================================================
-   8. ACTIVE BINARY SELECTOR & UPLOAD
+   8. ECU DATABASE (.db) & CALIBRATION BINARY (.bin) MANAGER
    ========================================================================= */
 
 let availableBinsCache = [];
+let availableDBsCache = [];
+let activeDBPathCache = '';
+let activeDBNameCache = '';
+let activeBinNameCache = '';
+let activeBinLoadedCache = false;
+
+function updateActiveHeaderAndBanner(data) {
+    if (!data) return;
+    const dbPath = data.active_db ?? data.db_path ?? activeDBPathCache;
+    const dbName = data.active_db_name ?? data.db_name ?? (dbPath ? dbPath.split(/[\\/]/).pop() : 'flash_analysis.db');
+    const binLoaded = data.bin_loaded !== undefined ? Boolean(data.bin_loaded) : Boolean(data.active_name || data.filename);
+    const binName = binLoaded ? (data.active_name ?? data.filename ?? '') : '';
+    const binPath = data.active_path ?? data.bin_path ?? data.path ?? '';
+
+    activeDBPathCache = dbPath || '';
+    activeDBNameCache = dbName || '';
+    activeBinNameCache = binName || '';
+    activeBinLoadedCache = binLoaded;
+
+    const hdrDbLbl = document.getElementById('hdr-db-lbl');
+    if (hdrDbLbl) {
+        hdrDbLbl.innerText = `DB: ${dbName}`;
+        hdrDbLbl.title = dbPath || dbName;
+    }
+
+    const hdrName = document.getElementById('hdr-bin-name');
+    if (hdrName) {
+        if (binLoaded && binName) {
+            hdrName.innerText = binName;
+            hdrName.classList.remove('no-bin');
+            hdrName.title = `${binPath || binName} (DB: ${dbPath || dbName})`;
+        } else {
+            hdrName.innerText = 'No .bin loaded — click to load';
+            hdrName.classList.add('no-bin');
+            hdrName.title = `Active DB: ${dbPath || dbName} — Click to load a companion .bin file`;
+        }
+    }
+
+    const modalCurDb = document.getElementById('modal-cur-db');
+    if (modalCurDb) {
+        modalCurDb.innerText = dbName || '-';
+        modalCurDb.title = dbPath || '';
+    }
+    const modalCurBin = document.getElementById('modal-cur-bin');
+    if (modalCurBin) {
+        if (binLoaded && binName) {
+            modalCurBin.innerText = binName;
+            modalCurBin.style.color = 'var(--green)';
+            modalCurBin.title = binPath || '';
+        } else {
+            modalCurBin.innerText = 'None loaded (drop or select a .bin)';
+            modalCurBin.style.color = 'var(--amber)';
+            modalCurBin.title = '';
+        }
+    }
+}
 
 function initBinSelector() {
     const btnOpen = document.getElementById('btn-open-bin-modal');
@@ -1836,8 +2170,13 @@ function initBinSelector() {
     const btnClose = document.getElementById('modal-bin-close');
     const filterInput = document.getElementById('bin-filter-input');
     const dropzone = document.getElementById('bin-dropzone');
-    const fileInput = document.getElementById('bin-file-input');
-    const btnBrowse = document.getElementById('btn-browse-bin');
+    const dbFileInput = document.getElementById('db-file-input');
+    const binFileInput = document.getElementById('bin-file-input');
+    const anyFileInput = document.getElementById('any-file-input');
+    const btnUploadDb = document.getElementById('btn-upload-db');
+    const btnBrowseBin = document.getElementById('btn-browse-bin');
+    const customPathInput = document.getElementById('custom-path-input');
+    const btnLoadCustomPath = document.getElementById('btn-load-custom-path');
 
     if (btnOpen && modal) {
         btnOpen.addEventListener('click', () => {
@@ -1853,7 +2192,6 @@ function initBinSelector() {
         });
     }
 
-    // Close when clicking modal backdrop
     if (modal) {
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
@@ -1862,23 +2200,41 @@ function initBinSelector() {
         });
     }
 
-    // Filter input listener
     if (filterInput) {
         filterInput.addEventListener('input', () => {
             renderBinsList(availableBinsCache);
         });
     }
 
-    // File browse click
-    if (btnBrowse && fileInput) {
-        btnBrowse.addEventListener('click', (e) => {
+    if (btnUploadDb && dbFileInput) {
+        btnUploadDb.addEventListener('click', (e) => {
             e.preventDefault();
-            fileInput.click();
+            e.stopPropagation();
+            dbFileInput.value = '';
+            dbFileInput.click();
         });
     }
 
-    // Dropzone drag-and-drop
-    if (dropzone && fileInput) {
+    if (btnBrowseBin && binFileInput) {
+        btnBrowseBin.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            binFileInput.value = '';
+            binFileInput.click();
+        });
+    }
+
+    if (btnLoadCustomPath && customPathInput) {
+        btnLoadCustomPath.addEventListener('click', () => mountCustomPath());
+        customPathInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                mountCustomPath();
+            }
+        });
+    }
+
+    if (dropzone) {
         ['dragenter', 'dragover'].forEach(eventName => {
             dropzone.addEventListener(eventName, (e) => {
                 e.preventDefault();
@@ -1897,46 +2253,40 @@ function initBinSelector() {
 
         dropzone.addEventListener('drop', (e) => {
             const dt = e.dataTransfer;
-            const files = dt.files;
-            if (files && files.length > 0) {
-                uploadBinaryFile(files[0]);
+            if (dt && dt.files && dt.files.length > 0) {
+                uploadFilesBatch(Array.from(dt.files));
             }
         });
 
         dropzone.addEventListener('click', (e) => {
-            if (e.target !== btnBrowse) {
-                fileInput.click();
-            }
-        });
-
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files && e.target.files.length > 0) {
-                uploadBinaryFile(e.target.files[0]);
+            if (e.target.closest('button')) return;
+            if (anyFileInput) {
+                anyFileInput.value = '';
+                anyFileInput.click();
             }
         });
     }
 
-    // Initial fetch of active bin name for header
+    [dbFileInput, binFileInput, anyFileInput].forEach(inp => {
+        if (!inp) return;
+        inp.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                uploadFilesBatch(Array.from(e.target.files));
+            }
+        });
+    });
+
     loadActiveBinHeader();
 }
 
 async function loadActiveBinHeader() {
     try {
         const res = await fetch('/api/bin/list').then(r => r.json());
-        if (res && res.active_name) {
-            const hdrName = document.getElementById('hdr-bin-name');
-            if (hdrName) {
-                hdrName.innerText = res.active_name;
-                hdrName.title = res.active_path || res.active_name;
-            }
-        }
+        updateActiveHeaderAndBanner(res);
     } catch (err) {
         console.error('Failed to load active bin header:', err);
     }
 }
-
-let availableDBsCache = [];
-let activeDBPathCache = '';
 
 async function refreshAllTabsAfterSwitch() {
     currentMapObj = null;
@@ -1953,7 +2303,6 @@ async function refreshAllTabsAfterSwitch() {
     if (fnContent) fnContent.style.display = 'none';
     if (fnPlaceholder) fnPlaceholder.style.display = 'flex';
 
-    // Update partition filter dropdown dynamically for the active ECU database
     try {
         const parts = await fetch('/api/partitions').then(r => r.json());
         const partSelect = document.getElementById('fn-partition-filter');
@@ -1977,24 +2326,16 @@ async function refreshAllTabsAfterSwitch() {
 async function loadAvailableBins() {
     const listEl = document.getElementById('available-bins-list');
     if (!listEl) return;
-    listEl.innerHTML = '<div class="loading">Scanning available ECU databases & binaries...</div>';
+    listEl.innerHTML = '<div class="loading">Scanning available ECU databases &amp; binaries...</div>';
 
     try {
         const res = await fetch('/api/bin/list').then(r => r.json());
-        if (res && res.active_name) {
-            const hdrName = document.getElementById('hdr-bin-name');
-            if (hdrName) {
-                hdrName.innerText = res.active_name;
-                hdrName.title = `${res.active_path || res.active_name} (DB: ${res.active_db || 'flash_analysis.db'})`;
-            }
-        }
-
+        updateActiveHeaderAndBanner(res);
         availableBinsCache = res.bins || [];
         availableDBsCache = res.dbs || [];
-        activeDBPathCache = res.active_db || '';
         renderBinsList(availableBinsCache);
     } catch (err) {
-        listEl.innerHTML = `<div class="empty-state"><p>Error loading binaries: ${escapeHtml(err.message)}</p></div>`;
+        listEl.innerHTML = `<div class="empty-state"><p>Error loading databases &amp; binaries: ${escapeHtml(err.message)}</p></div>`;
     }
 }
 
@@ -2004,7 +2345,15 @@ function renderBinsList(bins) {
     if (!listEl) return;
 
     const filter = filterInput ? filterInput.value.trim().toLowerCase() : '';
-    const filtered = bins.filter(b => {
+
+    const filteredDBs = (availableDBsCache || []).filter(db => {
+        if (!filter) return true;
+        return (db.filename && db.filename.toLowerCase().includes(filter)) ||
+               (db.folder && db.folder.toLowerCase().includes(filter)) ||
+               (db.category && db.category.toLowerCase().includes(filter));
+    });
+
+    const filteredBins = (bins || []).filter(b => {
         if (!filter) return true;
         return (b.filename && b.filename.toLowerCase().includes(filter)) ||
                (b.folder && b.folder.toLowerCase().includes(filter)) ||
@@ -2012,25 +2361,29 @@ function renderBinsList(bins) {
     });
 
     let dbSectionHtml = '';
-    if (availableDBsCache && availableDBsCache.length > 0 && !filter) {
-        dbSectionHtml = `<div style="margin-bottom: 10px; font-size: 11px; font-weight: 700; color: var(--accent-cyan); text-transform: uppercase; letter-spacing: 0.06em;">ECU Analysis Databases (.db)</div>` +
-            availableDBsCache.map(db => {
-                const isActive = activeDBPathCache && (activeDBPathCache === db.path || activeDBPathCache.endsWith(db.filename));
+    if (filteredDBs.length > 0) {
+        dbSectionHtml = `<div style="margin-bottom: 8px; font-size: 11px; font-weight: 700; color: var(--accent-cyan); text-transform: uppercase; letter-spacing: 0.06em;">ECU Analysis Databases (.db) — ${filteredDBs.length}</div>` +
+            filteredDBs.map(db => {
+                const isActive = Boolean(db.is_active);
                 const activeClass = isActive ? 'active-bin' : '';
                 const badgeActive = isActive ? '<span class="badge badge-success" style="font-size:10px;">ACTIVE DB</span>' : '';
+                const customBadge = db.is_custom
+                    ? '<span class="badge warn" style="font-size:10px;">CUSTOM DB</span>'
+                    : '<span class="badge info" style="font-size:10px;">SQLite DB</span>';
                 const actionBtn = isActive
                     ? `<span class="badge badge-success" style="padding: 6px 12px; font-weight:700;">ACTIVE</span>`
                     : `<button class="btn btn-sm btn-primary select-db-btn" data-path="${escapeHtml(db.path)}" data-filename="${escapeHtml(db.filename)}">Switch ECU DB</button>`;
+                const folderMeta = (db.folder && db.folder !== '.') ? `${escapeHtml(db.folder)} &bull; ` : '';
                 return `
                     <div class="bin-card ${activeClass}" style="border-left: 3px solid var(--accent-cyan); margin-bottom: 6px;">
                         <div class="bin-card-left">
-                            <div style="display:flex; align-items:center; gap:8px;">
+                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                                 <span class="bin-card-title">${escapeHtml(db.filename)}</span>
                                 ${badgeActive}
-                                <span class="badge info" style="font-size:10px;">SQLite DB</span>
+                                ${customBadge}
                             </div>
                             <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px;">
-                                ${escapeHtml(db.category || '')} &bull; ${escapeHtml(String(db.size_mb || ''))}
+                                ${folderMeta}${escapeHtml(db.category || '')} &bull; ${escapeHtml(String(db.size_mb || ''))}
                             </div>
                         </div>
                         <div class="bin-card-right">
@@ -2038,16 +2391,20 @@ function renderBinsList(bins) {
                         </div>
                     </div>
                 `;
-            }).join('') +
-            `<div style="margin: 12px 0 8px 0; font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em;">Calibration & Firmware Binaries (.bin)</div>`;
+            }).join('');
     }
 
-    if (filtered.length === 0 && !dbSectionHtml) {
-        listEl.innerHTML = '<div class="empty-state" style="padding: 20px;"><p>No matching binaries found.</p></div>';
+    let binHeaderHtml = '';
+    if (filteredBins.length > 0) {
+        binHeaderHtml = `<div style="margin: ${dbSectionHtml ? '12px' : '0'} 0 8px 0; font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em;">Calibration &amp; Firmware Binaries (.bin) — ${filteredBins.length}</div>`;
+    }
+
+    if (filteredBins.length === 0 && !dbSectionHtml) {
+        listEl.innerHTML = '<div class="empty-state" style="padding: 20px;"><p>No matching databases or binaries found.</p></div>';
         return;
     }
 
-    listEl.innerHTML = dbSectionHtml + filtered.map(b => {
+    listEl.innerHTML = dbSectionHtml + binHeaderHtml + filteredBins.map(b => {
         const isActive = b.is_active;
         const activeClass = isActive ? 'active-bin' : '';
         const badgeActive = isActive ? '<span class="badge badge-success" style="font-size:10px;">ACTIVE</span>' : '';
@@ -2060,7 +2417,7 @@ function renderBinsList(bins) {
         return `
             <div class="bin-card ${activeClass}">
                 <div class="bin-card-left">
-                    <div style="display:flex; align-items:center; gap:8px;">
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                         <span class="bin-card-title">${escapeHtml(b.filename)}</span>
                         ${badgeActive}
                         ${categoryBadge}
@@ -2076,7 +2433,6 @@ function renderBinsList(bins) {
         `;
     }).join('');
 
-    // Attach click listeners to DB select buttons
     listEl.querySelectorAll('.select-db-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -2086,7 +2442,6 @@ function renderBinsList(bins) {
         });
     });
 
-    // Attach click listeners to select buttons
     listEl.querySelectorAll('.select-bin-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -2098,6 +2453,14 @@ function renderBinsList(bins) {
 }
 
 async function selectDatabase(path, filename) {
+    const diffCountEl = document.getElementById('diff-counter');
+    const diffCount = diffCountEl ? parseInt(diffCountEl.innerText, 10) || 0 : 0;
+    if (diffCount > 0) {
+        if (!confirm(`You have ${diffCount} uncommitted calibration edits in memory.\n\nSwitching to database "${filename}" may change the active binary. Proceed?`)) {
+            return;
+        }
+    }
+
     try {
         const res = await fetch('/api/db/select', {
             method: 'POST',
@@ -2106,17 +2469,17 @@ async function selectDatabase(path, filename) {
         }).then(r => r.json());
 
         if (res.success) {
-            const hdrName = document.getElementById('hdr-bin-name');
-            if (hdrName && res.filename) {
-                hdrName.innerText = res.filename;
-                hdrName.title = `${res.bin_path} (DB: ${res.db_path})`;
-            }
-            const modal = document.getElementById('modal-bin-selector');
-            if (modal) modal.classList.remove('active');
+            updateActiveHeaderAndBanner(res);
             pendingEdits = [];
             updateDiffCount();
             await refreshAllTabsAfterSwitch();
-            loadAvailableBins();
+            await loadAvailableBins();
+
+            // If a companion binary was auto-matched, close modal; if no .bin is loaded yet, keep modal open so user can pick/upload a .bin right away
+            if (res.bin_loaded) {
+                const modal = document.getElementById('modal-bin-selector');
+                if (modal) modal.classList.remove('active');
+            }
         } else {
             alert(`Failed to switch database: ${res.error || 'Unknown error'}`);
         }
@@ -2126,9 +2489,8 @@ async function selectDatabase(path, filename) {
 }
 
 async function selectBinary(path, filename) {
-    // Check for uncommitted diffs
     const diffCountEl = document.getElementById('diff-counter');
-    const diffCount = diffCountEl ? parseInt(diffCountEl.innerText) || 0 : 0;
+    const diffCount = diffCountEl ? parseInt(diffCountEl.innerText, 10) || 0 : 0;
     if (diffCount > 0) {
         if (!confirm(`You have ${diffCount} uncommitted calibration edits in memory.\n\nSwitching to "${filename}" will clear pending edits. Proceed?`)) {
             return;
@@ -2143,23 +2505,12 @@ async function selectBinary(path, filename) {
         }).then(r => r.json());
 
         if (res.success) {
-            const hdrName = document.getElementById('hdr-bin-name');
-            if (hdrName) {
-                hdrName.innerText = res.filename;
-                hdrName.title = `${res.path} (DB: ${res.db_path || ''})`;
-            }
-
-            // Close modal
+            updateActiveHeaderAndBanner(res);
             const modal = document.getElementById('modal-bin-selector');
             if (modal) modal.classList.remove('active');
-
-            // Reset pending client edits and update diff count
             pendingEdits = [];
             updateDiffCount();
-
             await refreshAllTabsAfterSwitch();
-
-            // Refresh binary list cache
             loadAvailableBins();
         } else {
             alert(`Failed to load binary: ${res.error || 'Unknown error'}`);
@@ -2169,71 +2520,148 @@ async function selectBinary(path, filename) {
     }
 }
 
-async function uploadBinaryFile(file) {
-    if (!file) return;
-
-    if (!file.name.toLowerCase().endsWith('.bin')) {
-        alert('Invalid file: only .bin calibration/firmware files are supported.');
+async function mountCustomPath() {
+    const input = document.getElementById('custom-path-input');
+    if (!input) return;
+    const rawPath = input.value.trim();
+    if (!rawPath) {
+        alert('Enter a local .db file path, .bin file path, or project folder path.');
         return;
     }
 
-    const validSizes = [4194304, 786432, 785408, 49152, 32768, 16384];
-    if (!validSizes.includes(file.size)) {
-        if (!confirm(`Warning: Expected 4 MB (SIM2K-260), 768 KB / 767 KB (Kefico CPTSH TCU), or 48 KB / 32 KB / 16 KB (AWD ECU) binary.\nThe selected file is ${file.size.toLocaleString()} bytes.\n\nDo you still wish to attempt loading it?`)) {
-            return;
-        }
-    }
-
-    // Check uncommitted diffs
-    const diffCountEl = document.getElementById('diff-counter');
-    const diffCount = diffCountEl ? parseInt(diffCountEl.innerText) || 0 : 0;
-    if (diffCount > 0) {
-        if (!confirm(`You have ${diffCount} uncommitted calibration edits in memory.\n\nUploading and loading "${file.name}" will clear pending edits. Proceed?`)) {
-            return;
-        }
-    }
-
-    const formData = new FormData();
-    formData.append('file', file);
-
     const listEl = document.getElementById('available-bins-list');
     if (listEl) {
-        listEl.innerHTML = `<div class="loading">Uploading ${escapeHtml(file.name)} (${(file.size / 1024).toFixed(1)} KB)...</div>`;
+        listEl.innerHTML = `<div class="loading">Mounting ${escapeHtml(rawPath)}...</div>`;
     }
 
     try {
-        const res = await fetch('/api/bin/upload', {
+        const res = await fetch('/api/custom/load-path', {
             method: 'POST',
-            body: formData
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: rawPath })
         }).then(r => r.json());
 
         if (res.success) {
-            const hdrName = document.getElementById('hdr-bin-name');
-            if (hdrName) {
-                hdrName.innerText = res.filename;
-                hdrName.title = `${res.path} (DB: ${res.db_path || ''})`;
-            }
-
-            // Close modal
-            const modal = document.getElementById('modal-bin-selector');
-            if (modal) modal.classList.remove('active');
-
-            // Reset pending edits
+            input.value = '';
+            updateActiveHeaderAndBanner(res);
             pendingEdits = [];
             updateDiffCount();
-
             await refreshAllTabsAfterSwitch();
+            await loadAvailableBins();
 
-            alert(`Binary "${res.filename}" uploaded and loaded successfully!`);
-            loadAvailableBins();
+            if (res.bin_loaded && res.mounted_type !== 'directory') {
+                const modal = document.getElementById('modal-bin-selector');
+                if (modal) modal.classList.remove('active');
+            }
         } else {
-            alert(`Upload failed: ${res.error || 'Server rejected file'}`);
+            alert(`Could not load path: ${res.error || 'Unknown error'}`);
             loadAvailableBins();
+        }
+    } catch (err) {
+        alert(`Mount request failed: ${err.message}`);
+        loadAvailableBins();
+    }
+}
+
+async function uploadFilesBatch(files) {
+    if (!files || files.length === 0) return;
+
+    const dbFiles = [];
+    const binFiles = [];
+    const unsupported = [];
+
+    for (const f of files) {
+        const lower = f.name.toLowerCase();
+        if (lower.endsWith('.db') || lower.endsWith('.sqlite') || lower.endsWith('.sqlite3')) {
+            dbFiles.push(f);
+        } else if (lower.endsWith('.bin')) {
+            binFiles.push(f);
+        } else {
+            unsupported.push(f.name);
+        }
+    }
+
+    if (unsupported.length > 0 && dbFiles.length === 0 && binFiles.length === 0) {
+        alert(`Unsupported file(s): ${unsupported.join(', ')}\n\nSupported extensions: .db, .sqlite, .sqlite3, .bin`);
+        return;
+    }
+
+    const diffCountEl = document.getElementById('diff-counter');
+    const diffCount = diffCountEl ? parseInt(diffCountEl.innerText, 10) || 0 : 0;
+    if (diffCount > 0) {
+        if (!confirm(`You have ${diffCount} uncommitted calibration edits in memory.\n\nLoading new file(s) will clear pending edits. Proceed?`)) {
+            return;
+        }
+    }
+
+    const listEl = document.getElementById('available-bins-list');
+    let lastRes = null;
+
+    try {
+        // 1. Upload .db file(s) first so companion .bin uploads pair cleanly with the new DB
+        for (const dbFile of dbFiles) {
+            if (listEl) {
+                const szMB = (dbFile.size / (1024 * 1024)).toFixed(2);
+                listEl.innerHTML = `<div class="loading">Uploading database ${escapeHtml(dbFile.name)} (${szMB} MB)...</div>`;
+            }
+            const fd = new FormData();
+            fd.append('file', dbFile);
+            const skipAuto = binFiles.length > 0 ? '?skip_bin_auto=1' : '';
+            const res = await fetch(`/api/db/upload${skipAuto}`, {
+                method: 'POST',
+                body: fd
+            }).then(r => r.json());
+
+            if (!res.success) {
+                alert(`Database upload failed (${dbFile.name}): ${res.error || 'Server rejected file'}`);
+                await loadAvailableBins();
+                return;
+            }
+            lastRes = res;
+        }
+
+        // 2. Upload .bin file(s) (if multiple bins dropped, all are saved into workspace and the first or active one is loaded)
+        const keepDbParam = dbFiles.length > 0 ? '?keep_db=1' : '';
+        // Upload in reverse so the first selected .bin ends up as the currently active loaded binary
+        const orderedBins = binFiles.length > 1 ? [...binFiles].reverse() : binFiles;
+        for (const binFile of orderedBins) {
+            if (listEl) {
+                const szKB = (binFile.size / 1024).toFixed(1);
+                listEl.innerHTML = `<div class="loading">Uploading binary ${escapeHtml(binFile.name)} (${szKB} KB)...</div>`;
+            }
+            const fd = new FormData();
+            fd.append('file', binFile);
+            const res = await fetch(`/api/bin/upload${keepDbParam}`, {
+                method: 'POST',
+                body: fd
+            }).then(r => r.json());
+
+            if (!res.success) {
+                alert(`Binary upload failed (${binFile.name}): ${res.error || 'Server rejected file'}`);
+                await loadAvailableBins();
+                return;
+            }
+            lastRes = res;
+        }
+
+        if (lastRes) {
+            updateActiveHeaderAndBanner(lastRes);
+        }
+        pendingEdits = [];
+        updateDiffCount();
+        await refreshAllTabsAfterSwitch();
+        await loadAvailableBins();
+
+        // Close modal if a binary is now loaded; if user uploaded ONLY a .db and no .bin is loaded yet, keep modal open so they can drop/select its .bin(s) next
+        if (lastRes && lastRes.bin_loaded) {
+            const modal = document.getElementById('modal-bin-selector');
+            if (modal) modal.classList.remove('active');
         }
     } catch (err) {
         alert(`Upload error: ${err.message}`);
         loadAvailableBins();
     }
 }
+
 
 

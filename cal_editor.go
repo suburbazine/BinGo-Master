@@ -56,29 +56,69 @@ func CRC32MSB(buf []byte) uint32 {
 	return c
 }
 
-// BinManager holds the in-memory binary image and session modifications
+// BinManager holds the in-memory binary image, active DB memory map context, and session modifications
 type BinManager struct {
-	mu           sync.RWMutex
-	binPath      string
-	originalData []byte
-	currentData  []byte
-	loaded       bool
-	diffs        map[string]DiffRecord // key: "mapID:row:col"
+	mu            sync.RWMutex
+	binPath       string
+	dbPath        string
+	partitions    []Partition
+	axisMaps      map[uint32]CalMap
+	extraScanDirs []string
+	extraBinPaths []string
+	originalData  []byte
+	currentData   []byte
+	loaded        bool
+	diffs         map[string]DiffRecord // key: "mapID:row:col"
 }
 
 // NewBinManager initializes the binary manager
 func NewBinManager(binPath string) *BinManager {
 	bm := &BinManager{
-		binPath: binPath,
-		diffs:   make(map[string]DiffRecord),
+		binPath:  binPath,
+		axisMaps: make(map[uint32]CalMap),
+		diffs:    make(map[string]DiffRecord),
 	}
-	if err := bm.Load(binPath); err != nil {
-		fmt.Printf("[BinManager] Warning: could not load initial bin '%s': %v\n", binPath, err)
+	if binPath != "" {
+		if err := bm.Load(binPath); err != nil {
+			fmt.Printf("[BinManager] Warning: could not load initial bin '%s': %v\n", binPath, err)
+		}
 	}
 	return bm
 }
 
-// Load loads a calibration binary file into memory (4 MB SIM2K-260, 48 KB / 32 KB AWD, etc.)
+// SetDBContext updates the active database path, partition layout, and axis map metadata
+func (bm *BinManager) SetDBContext(dbPath string, partitions []Partition, axisMaps map[uint32]CalMap) {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	bm.dbPath = dbPath
+	bm.partitions = partitions
+	if axisMaps != nil {
+		bm.axisMaps = axisMaps
+	} else {
+		bm.axisMaps = make(map[uint32]CalMap)
+	}
+}
+
+// SetExtraSources registers custom directories and explicit binary paths for discovery
+func (bm *BinManager) SetExtraSources(scanDirs []string, binPaths []string) {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	bm.extraScanDirs = append([]string(nil), scanDirs...)
+	bm.extraBinPaths = append([]string(nil), binPaths...)
+}
+
+// Unload clears any currently loaded binary (used when switching to a custom DB with no matching bin yet)
+func (bm *BinManager) Unload() {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	bm.binPath = ""
+	bm.originalData = nil
+	bm.currentData = nil
+	bm.loaded = false
+	bm.diffs = make(map[string]DiffRecord)
+}
+
+// Load loads a calibration/firmware binary file of any ECU family into memory
 func (bm *BinManager) Load(path string) error {
 	bm.mu.Lock()
 	defer bm.mu.Unlock()
@@ -87,11 +127,11 @@ func (bm *BinManager) Load(path string) error {
 	if err != nil {
 		return err
 	}
-	if len(data) < 1024 {
-		return fmt.Errorf("invalid binary size: %d bytes (must be at least 1,024 bytes)", len(data))
+	if len(data) < 32 {
+		return fmt.Errorf("invalid binary size: %d bytes (must be at least 32 bytes)", len(data))
 	}
 
-	bm.binPath = path
+	bm.binPath = filepath.ToSlash(path)
 	bm.originalData = make([]byte, len(data))
 	copy(bm.originalData, data)
 	bm.currentData = make([]byte, len(data))
@@ -117,35 +157,146 @@ func (bm *BinManager) GetBinPath() string {
 	return bm.binPath
 }
 
+// GetLoadedSize returns the byte length of the currently loaded binary
+func (bm *BinManager) GetLoadedSize() int {
+	bm.mu.RLock()
+	defer bm.mu.RUnlock()
+	return len(bm.currentData)
+}
+
+// normalizeDataOrg maps both WinOLS and standard C/Python/Rust data type strings to canonical organizations
+func normalizeDataOrg(org string) string {
+	clean := strings.TrimSpace(org)
+	switch clean {
+	case "eFloatLoHi", "eFloatHiLo", "eLongLoHi", "eLongHiLo", "eSLongLoHi", "eSLongHiLo",
+		"eLoHi", "eSLoHi", "eHiLo", "eSHiLo", "eSByte", "eByte":
+		return clean
+	}
+
+	switch strings.ToLower(clean) {
+	case "float32", "float", "f32", "float32_le", "f32_le", "efloatlohi":
+		return "eFloatLoHi"
+	case "float32_be", "f32_be", "float_be", "efloathilo":
+		return "eFloatHiLo"
+	case "uint32", "u32", "ulong", "uint32_le", "u32_le", "dword", "elonglohi":
+		return "eLongLoHi"
+	case "uint32_be", "u32_be", "ulong_be", "elonghilo":
+		return "eLongHiLo"
+	case "int32", "i32", "s32", "slong", "int32_le", "i32_le", "s32_le", "eslonglohi":
+		return "eSLongLoHi"
+	case "int32_be", "i32_be", "s32_be", "slong_be", "eslonghilo":
+		return "eSLongHiLo"
+	case "uint16", "u16", "uword", "word", "uint16_le", "u16_le", "elohi":
+		return "eLoHi"
+	case "uint16_be", "u16_be", "uword_be", "word_be", "ehilo":
+		return "eHiLo"
+	case "int16", "i16", "s16", "sword", "short", "int16_le", "i16_le", "s16_le", "eslohi":
+		return "eSLoHi"
+	case "int16_be", "i16_be", "s16_be", "sword_be", "short_be", "eshilo":
+		return "eSHiLo"
+	case "int8", "i8", "s8", "sbyte", "char", "esbyte":
+		return "eSByte"
+	default:
+		return "eByte"
+	}
+}
+
+func isBigEndianOrg(org string) bool {
+	switch normalizeDataOrg(org) {
+	case "eFloatHiLo", "eLongHiLo", "eSLongHiLo", "eHiLo", "eSHiLo":
+		return true
+	default:
+		return false
+	}
+}
+
 func bytesPerCellForOrg(org string) int {
-	switch org {
-	case "eFloatLoHi", "eFloatHiLo", "float32", "eLongLoHi", "eLongHiLo", "uint32", "int32":
+	switch normalizeDataOrg(org) {
+	case "eFloatLoHi", "eFloatHiLo", "eLongLoHi", "eLongHiLo", "eSLongLoHi", "eSLongHiLo":
 		return 4
-	case "eLoHi", "eSLoHi", "eHiLo", "eSHiLo", "uint16", "int16":
+	case "eLoHi", "eSLoHi", "eHiLo", "eSHiLo":
 		return 2
 	default:
 		return 1
 	}
 }
 
+func (bm *BinManager) isAWDDBLocked() bool {
+	if strings.Contains(strings.ToLower(filepath.Base(bm.dbPath)), "awd_") {
+		return true
+	}
+	for _, p := range bm.partitions {
+		if p.Name == "CAL_DPP1" {
+			return true
+		}
+	}
+	return false
+}
+
+func (bm *BinManager) isSIM2KDBLocked() bool {
+	base := strings.ToLower(filepath.Base(bm.dbPath))
+	return base == "flash_analysis.db"
+}
+
 func (bm *BinManager) resolveMapOffset(m CalMap) int {
 	n := len(bm.currentData)
-	// If Kefico CPTSH 8AT TCU image (785,408 B at 0x1C0200 or 786,432 B at 0x1C0000) is loaded:
+	if n == 0 {
+		return m.FileOffset
+	}
+
+	// 1. Kefico CPTSH 8AT TCU image (785,408 B at 0x1C0200 or 786,432 B at 0x1C0000)
 	if base, _, ok := tcuImageBase(bm.currentData); ok && m.EA >= base && m.EA < 0x00280000 {
 		return int(m.EA - base)
 	}
-	// If 32 KB AWD cal-only image (0xC04000..0xC0BFFF) is loaded and map EA is in 0xC04000..0xC0BFFF:
-	if n == 0x8000 && m.EA >= 0x00C04000 && m.EA < 0x00C0C000 {
-		return int(m.EA - 0x00C04000)
+
+	// 2. AWD ECU partial/combined dumps when AWD DB is active
+	if bm.isAWDDBLocked() {
+		if n == 0x8000 && m.EA >= 0x00C04000 && m.EA < 0x00C0C000 {
+			return int(m.EA - 0x00C04000)
+		}
+		if n == 0xC000 && m.EA >= 0x00C00000 && m.EA < 0x00C0C000 {
+			return int(m.EA - 0x00C00000)
+		}
+		if n == 0x4000 && m.EA >= 0x00C00000 && m.EA < 0x00C04000 {
+			return int(m.EA - 0x00C00000)
+		}
 	}
-	// If 48 KB AWD combined image (0xC00000..0xC0BFFF) is loaded and map EA is in 0xC00000..0xC0BFFF:
-	if n == 0xC000 && m.EA >= 0x00C00000 && m.EA < 0x00C0C000 {
-		return int(m.EA - 0x00C00000)
+
+	// 3. Partition-aware resolution for custom DBs (handles both full flash dumps and calibration-only slice bins)
+	if m.EA > 0 && len(bm.partitions) > 0 {
+		for _, p := range bm.partitions {
+			if m.EA >= p.StartEA && m.EA <= p.EndEA && p.EndEA >= p.StartEA {
+				partLen := int(uint64(p.EndEA) - uint64(p.StartEA) + 1)
+				// If loaded binary matches this single partition's exact byte size (e.g. cal-only .bin slice)
+				if partLen == n {
+					return int(m.EA - p.StartEA)
+				}
+				if p.FileStart != nil && p.FileEnd != nil && (*p.FileEnd-*p.FileStart+1) == n {
+					return int(m.EA - p.StartEA)
+				}
+			}
+		}
+
+		// If FileOffset is out of range for the loaded bin or unset (0 while EA > 0 and partition maps elsewhere)
+		if m.FileOffset < 0 || m.FileOffset >= n || (m.FileOffset == 0 && m.EA > 0) {
+			for _, p := range bm.partitions {
+				if m.EA >= p.StartEA && m.EA <= p.EndEA {
+					if p.FileStart != nil {
+						cand := *p.FileStart + int(m.EA-p.StartEA)
+						if cand >= 0 && cand < n {
+							return cand
+						}
+					}
+					// Also support cal-slice binary starting at p.StartEA
+					sliceCand := int(m.EA - p.StartEA)
+					if m.FileOffset >= n && sliceCand >= 0 && sliceCand < n {
+						return sliceCand
+					}
+				}
+			}
+		}
 	}
-	// If 16 KB AWD RAM image (0xC00000..0xC03FFF) is loaded:
-	if n == 0x4000 && m.EA >= 0x00C00000 && m.EA < 0x00C04000 {
-		return int(m.EA - 0x00C00000)
-	}
+
 	return m.FileOffset
 }
 
@@ -153,8 +304,8 @@ func decodeCellValue(buf []byte, org string, factor, offset float64) (int64, flo
 	if factor == 0 {
 		factor = 1.0
 	}
-	switch org {
-	case "eFloatLoHi", "float32":
+	switch normalizeDataOrg(org) {
+	case "eFloatLoHi":
 		bits := binary.LittleEndian.Uint32(buf[:4])
 		f := float64(math.Float32frombits(bits))
 		if math.IsNaN(f) || math.IsInf(f, 0) {
@@ -168,14 +319,17 @@ func decodeCellValue(buf []byte, org string, factor, offset float64) (int64, flo
 			f = 0
 		}
 		return int64(bits), f*factor + offset
-	case "eLongLoHi", "uint32":
+	case "eLongLoHi":
 		raw := int64(binary.LittleEndian.Uint32(buf[:4]))
 		return raw, float64(raw)*factor + offset
 	case "eLongHiLo":
 		raw := int64(binary.BigEndian.Uint32(buf[:4]))
 		return raw, float64(raw)*factor + offset
-	case "int32":
+	case "eSLongLoHi":
 		raw := int64(int32(binary.LittleEndian.Uint32(buf[:4])))
+		return raw, float64(raw)*factor + offset
+	case "eSLongHiLo":
+		raw := int64(int32(binary.BigEndian.Uint32(buf[:4])))
 		return raw, float64(raw)*factor + offset
 	case "eHiLo":
 		raw := int64(binary.BigEndian.Uint16(buf[:2]))
@@ -183,13 +337,13 @@ func decodeCellValue(buf []byte, org string, factor, offset float64) (int64, flo
 	case "eSHiLo":
 		raw := int64(int16(binary.BigEndian.Uint16(buf[:2])))
 		return raw, float64(raw)*factor + offset
-	case "eSLoHi", "int16":
+	case "eSLoHi":
 		raw := int64(int16(binary.LittleEndian.Uint16(buf[:2])))
 		return raw, float64(raw)*factor + offset
-	case "eLoHi", "uint16":
+	case "eLoHi":
 		raw := int64(binary.LittleEndian.Uint16(buf[:2]))
 		return raw, float64(raw)*factor + offset
-	case "eSByte", "int8":
+	case "eSByte":
 		raw := int64(int8(buf[0]))
 		return raw, float64(raw)*factor + offset
 	default:
@@ -204,15 +358,16 @@ func (bm *BinManager) ReadMapData(m CalMap) (MapDataResponse, error) {
 	defer bm.mu.RUnlock()
 
 	resp := MapDataResponse{
-		Map:      m,
-		XAxis:    make([]AxisPoint, 0),
-		YAxis:    make([]AxisPoint, 0),
-		Cells:    make([][]CellPoint, 0),
-		IsEdited: false,
+		Map:       m,
+		XAxis:     make([]AxisPoint, 0),
+		YAxis:     make([]AxisPoint, 0),
+		Cells:     make([][]CellPoint, 0),
+		IsEdited:  false,
+		BinLoaded: bm.loaded,
 	}
 
 	if !bm.loaded {
-		return resp, fmt.Errorf("no binary loaded")
+		return resp, fmt.Errorf("no calibration binary (.bin) loaded yet")
 	}
 
 	cols := m.Columns
@@ -229,7 +384,7 @@ func (bm *BinManager) ReadMapData(m CalMap) (MapDataResponse, error) {
 
 	totalBytes := cols * rows * bytesPerCell
 	if baseOffset < 0 || baseOffset+totalBytes > len(bm.currentData) {
-		return resp, fmt.Errorf("map offset 0x%X (EA 0x%X) out of binary range (%d bytes loaded)", baseOffset, m.EA, len(bm.currentData))
+		return resp, fmt.Errorf("map offset 0x%X (EA 0x%X, %d bytes) is outside loaded binary '%s' (%d bytes)", baseOffset, m.EA, totalBytes, filepath.Base(bm.binPath), len(bm.currentData))
 	}
 
 	// Read Cells
@@ -260,16 +415,86 @@ func (bm *BinManager) ReadMapData(m CalMap) (MapDataResponse, error) {
 		}
 	}
 
-	// Read X-Axis
-	resp.XAxis = bm.readAxis(m.AxisXEA, cols, m.AxisXName, m.DataOrg)
-
-	// Read Y-Axis
-	resp.YAxis = bm.readAxis(m.AxisYEA, rows, m.AxisYName, m.DataOrg)
+	// Read X-Axis & Y-Axis
+	resp.XAxis = bm.readAxis(m.AxisXEA, cols, m.AxisXName, m, baseOffset)
+	resp.YAxis = bm.readAxis(m.AxisYEA, rows, m.AxisYName, m, baseOffset)
 
 	return resp, nil
 }
 
-func (bm *BinManager) readAxis(axisEA *uint32, count int, name string, dataOrg string) []AxisPoint {
+func formatAxisLabel(phys float64, unit string) string {
+	rounded := math.Round(phys*1000) / 1000
+	var s string
+	if math.Abs(rounded-math.Round(rounded)) < 1e-6 {
+		s = fmt.Sprintf("%.0f", rounded)
+	} else {
+		s = strconvFormatFloatClean(rounded)
+	}
+	if unit != "" {
+		return s + " " + unit
+	}
+	return s
+}
+
+func strconvFormatFloatClean(v float64) string {
+	s := fmt.Sprintf("%.3f", v)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	return s
+}
+
+func (bm *BinManager) resolveEAOffsetLocked(ea uint32, parentMap CalMap, parentBaseOffset int) int {
+	n := len(bm.currentData)
+	if n == 0 {
+		return -1
+	}
+
+	// SIM2K-260 calibration partition
+	if bm.isSIM2KDBLocked() && ea >= 0x80800000 && ea < 0x80A00000 {
+		return int(ea - 0x80800000 + 0x200000)
+	}
+
+	// AWD C166 calibration/RAM partitions
+	if bm.isAWDDBLocked() && ea >= 0x00C00000 && ea < 0x00C0C000 {
+		if n == 0x8000 && ea >= 0x00C04000 {
+			return int(ea - 0x00C04000)
+		}
+		return int(ea - 0x00C00000)
+	}
+
+	// Partition table lookup for custom DBs (MDPS, etc.)
+	for _, p := range bm.partitions {
+		if ea >= p.StartEA && ea <= p.EndEA && p.EndEA >= p.StartEA {
+			partLen := int(uint64(p.EndEA) - uint64(p.StartEA) + 1)
+			if partLen == n {
+				return int(ea - p.StartEA)
+			}
+			if p.FileStart != nil {
+				cand := *p.FileStart + int(ea-p.StartEA)
+				if cand >= 0 && cand < n {
+					return cand
+				}
+			}
+		}
+	}
+
+	// Relative EA offset from parent map (works even if partitions table is absent)
+	if parentMap.EA > 0 && parentBaseOffset >= 0 {
+		rel := int64(parentBaseOffset) + (int64(ea) - int64(parentMap.EA))
+		if rel >= 0 && rel < int64(n) {
+			return int(rel)
+		}
+	}
+
+	// Direct 0-based flat binary offset
+	if int64(ea) >= 0 && int64(ea) < int64(n) {
+		return int(ea)
+	}
+
+	return -1
+}
+
+func (bm *BinManager) readAxis(axisEA *uint32, count int, name string, parentMap CalMap, parentBaseOffset int) []AxisPoint {
 	axis := make([]AxisPoint, count)
 	defaultAxis := func() []AxisPoint {
 		for i := 0; i < count; i++ {
@@ -282,18 +507,17 @@ func (bm *BinManager) readAxis(axisEA *uint32, count int, name string, dataOrg s
 		}
 		return axis
 	}
-	if axisEA == nil {
+	if axisEA == nil || count <= 0 {
 		return defaultAxis()
 	}
 
-	var axOffset int = -1
 	ea := *axisEA
 	n := len(bm.currentData)
 
-	// Kefico CPTSH 8AT TCU Big-Endian calibration partition (0x001C0000..0x0027FFFF)
+	// 1. Kefico CPTSH 8AT TCU Big-Endian calibration partition (0x001C0000..0x0027FFFF)
 	if base, _, ok := tcuImageBase(bm.currentData); ok && ea >= base && ea < 0x00280000 {
-		axOffset = int(ea - base)
-		if bytesPerCellForOrg(dataOrg) == 1 && axOffset+count <= n {
+		axOffset := int(ea - base)
+		if bytesPerCellForOrg(parentMap.DataOrg) == 1 && axOffset+count <= n {
 			shiftLabels14 := []string{"1->2", "2->3", "3->4", "4->5", "5->6", "6->7", "7->8", "2->1", "3->2", "4->3", "5->4", "6->5", "7->6", "8->7"}
 			downshiftLabels7 := []string{"2->1", "3->2", "4->3", "5->4", "6->5", "7->6", "8->7"}
 			for i := 0; i < count; i++ {
@@ -340,23 +564,39 @@ func (bm *BinManager) readAxis(axisEA *uint32, count int, name string, dataOrg s
 		return defaultAxis()
 	}
 
-	if ea >= 0x80800000 && ea < 0x80A00000 {
-		axOffset = int(ea - 0x80800000 + 0x200000)
-	} else if ea >= 0x00C00000 && ea < 0x00C0C000 {
-		if n == 0x8000 && ea >= 0x00C04000 {
-			axOffset = int(ea - 0x00C04000)
-		} else {
-			axOffset = int(ea - 0x00C00000)
+	// 2. If the axis EA itself is defined as an entry in cal_maps, use its exact DataOrg, Factor, Offset, and Offset resolution!
+	if axMap, exists := bm.axisMaps[ea]; exists && !bm.isSIM2KDBLocked() {
+		axOff := bm.resolveMapOffset(axMap)
+		bpc := bytesPerCellForOrg(axMap.DataOrg)
+		if axOff >= 0 && axOff+count*bpc <= n {
+			for i := 0; i < count; i++ {
+				raw, phys := decodeCellValue(bm.currentData[axOff+i*bpc:axOff+(i+1)*bpc], axMap.DataOrg, axMap.Factor, axMap.Offset)
+				axis[i] = AxisPoint{
+					Index:    i,
+					Raw:      int(raw),
+					Physical: math.Round(phys*1000) / 1000,
+					Label:    formatAxisLabel(phys, axMap.Unit),
+				}
+			}
+			return axis
 		}
 	}
+
+	// 3. Generic EA -> file offset resolution across SIM2K, AWD, and custom DBs
+	axOffset := bm.resolveEAOffsetLocked(ea, parentMap, parentBaseOffset)
 	if axOffset < 0 {
 		return defaultAxis()
 	}
 
-	if axOffset+count*2 <= len(bm.currentData) {
-		// Read as uint16 LE
+	bigEndian := isBigEndianOrg(parentMap.DataOrg)
+	if axOffset+count*2 <= n {
 		for i := 0; i < count; i++ {
-			val := int(binary.LittleEndian.Uint16(bm.currentData[axOffset+i*2 : axOffset+i*2+2]))
+			var val int
+			if bigEndian {
+				val = int(binary.BigEndian.Uint16(bm.currentData[axOffset+i*2 : axOffset+i*2+2]))
+			} else {
+				val = int(binary.LittleEndian.Uint16(bm.currentData[axOffset+i*2 : axOffset+i*2+2]))
+			}
 			axis[i] = AxisPoint{
 				Index:    i,
 				Raw:      val,
@@ -364,8 +604,7 @@ func (bm *BinManager) readAxis(axisEA *uint32, count int, name string, dataOrg s
 				Label:    fmt.Sprintf("%d", val),
 			}
 		}
-	} else if axOffset+count <= len(bm.currentData) {
-		// Read as uint8
+	} else if axOffset+count <= n {
 		for i := 0; i < count; i++ {
 			val := int(bm.currentData[axOffset+i])
 			axis[i] = AxisPoint{
@@ -394,7 +633,8 @@ func (bm *BinManager) ApplyCellEdits(m CalMap, edits []CellEdit) ([]DiffRecord, 
 	if cols < 1 {
 		cols = 1
 	}
-	bytesPerCell := bytesPerCellForOrg(m.DataOrg)
+	normOrg := normalizeDataOrg(m.DataOrg)
+	bytesPerCell := bytesPerCellForOrg(normOrg)
 	baseOffset := bm.resolveMapOffset(m)
 
 	factor := m.Factor
@@ -414,12 +654,12 @@ func (bm *BinManager) ApplyCellEdits(m CalMap, edits []CellEdit) ([]DiffRecord, 
 			continue
 		}
 
-		oldRaw, oldPhys := decodeCellValue(bm.currentData[cellOffset:cellOffset+bytesPerCell], m.DataOrg, factor, m.Offset)
+		oldRaw, oldPhys := decodeCellValue(bm.currentData[cellOffset:cellOffset+bytesPerCell], normOrg, factor, m.Offset)
 
 		var newRaw int64
 		var newPhys float64
 
-		if m.DataOrg == "eFloatLoHi" || m.DataOrg == "eFloatHiLo" || m.DataOrg == "float32" {
+		if normOrg == "eFloatLoHi" || normOrg == "eFloatHiLo" {
 			var bits uint32
 			if edit.Physical != nil {
 				newPhys = *edit.Physical
@@ -433,7 +673,7 @@ func (bm *BinManager) ApplyCellEdits(m CalMap, edits []CellEdit) ([]DiffRecord, 
 			} else {
 				continue
 			}
-			if m.DataOrg == "eFloatHiLo" {
+			if normOrg == "eFloatHiLo" {
 				binary.BigEndian.PutUint32(bm.currentData[cellOffset:cellOffset+4], bits)
 			} else {
 				binary.LittleEndian.PutUint32(bm.currentData[cellOffset:cellOffset+4], bits)
@@ -451,7 +691,7 @@ func (bm *BinManager) ApplyCellEdits(m CalMap, edits []CellEdit) ([]DiffRecord, 
 
 			switch bytesPerCell {
 			case 1:
-				if m.DataOrg == "eSByte" || m.DataOrg == "int8" {
+				if normOrg == "eSByte" {
 					if newRaw < -128 {
 						newRaw = -128
 					}
@@ -469,14 +709,14 @@ func (bm *BinManager) ApplyCellEdits(m CalMap, edits []CellEdit) ([]DiffRecord, 
 					bm.currentData[cellOffset] = byte(newRaw)
 				}
 			case 2:
-				if m.DataOrg == "eSLoHi" || m.DataOrg == "int16" || m.DataOrg == "eSHiLo" {
+				if normOrg == "eSLoHi" || normOrg == "eSHiLo" {
 					if newRaw < -32768 {
 						newRaw = -32768
 					}
 					if newRaw > 32767 {
 						newRaw = 32767
 					}
-					if m.DataOrg == "eSHiLo" {
+					if normOrg == "eSHiLo" {
 						binary.BigEndian.PutUint16(bm.currentData[cellOffset:cellOffset+2], uint16(int16(newRaw)))
 					} else {
 						binary.LittleEndian.PutUint16(bm.currentData[cellOffset:cellOffset+2], uint16(int16(newRaw)))
@@ -488,17 +728,37 @@ func (bm *BinManager) ApplyCellEdits(m CalMap, edits []CellEdit) ([]DiffRecord, 
 					if newRaw > 65535 {
 						newRaw = 65535
 					}
-					if m.DataOrg == "eHiLo" {
+					if normOrg == "eHiLo" {
 						binary.BigEndian.PutUint16(bm.currentData[cellOffset:cellOffset+2], uint16(newRaw))
 					} else {
 						binary.LittleEndian.PutUint16(bm.currentData[cellOffset:cellOffset+2], uint16(newRaw))
 					}
 				}
 			case 4:
-				if m.DataOrg == "eLongHiLo" {
-					binary.BigEndian.PutUint32(bm.currentData[cellOffset:cellOffset+4], uint32(newRaw))
+				if normOrg == "eSLongLoHi" || normOrg == "eSLongHiLo" {
+					if newRaw < math.MinInt32 {
+						newRaw = math.MinInt32
+					}
+					if newRaw > math.MaxInt32 {
+						newRaw = math.MaxInt32
+					}
+					if normOrg == "eSLongHiLo" {
+						binary.BigEndian.PutUint32(bm.currentData[cellOffset:cellOffset+4], uint32(int32(newRaw)))
+					} else {
+						binary.LittleEndian.PutUint32(bm.currentData[cellOffset:cellOffset+4], uint32(int32(newRaw)))
+					}
 				} else {
-					binary.LittleEndian.PutUint32(bm.currentData[cellOffset:cellOffset+4], uint32(newRaw))
+					if newRaw < 0 {
+						newRaw = 0
+					}
+					if newRaw > math.MaxUint32 {
+						newRaw = math.MaxUint32
+					}
+					if normOrg == "eLongHiLo" {
+						binary.BigEndian.PutUint32(bm.currentData[cellOffset:cellOffset+4], uint32(newRaw))
+					} else {
+						binary.LittleEndian.PutUint32(bm.currentData[cellOffset:cellOffset+4], uint32(newRaw))
+					}
 				}
 			}
 		}
@@ -557,7 +817,7 @@ func (bm *BinManager) GetAllDiffs() []DiffRecord {
 	return res
 }
 
-// ExportPatchedBin writes the edited binary to a new destination with re-computed CRC-32
+// ExportPatchedBin writes the edited binary to a new destination with re-computed CRC-32 where applicable
 func (bm *BinManager) ExportPatchedBin(outputPath string) (uint32, error) {
 	bm.mu.RLock()
 	defer bm.mu.RUnlock()
@@ -583,15 +843,15 @@ func (bm *BinManager) ExportPatchedBin(outputPath string) (uint32, error) {
 		} else {
 			calcCRC = crc32.ChecksumIEEE(outData)
 		}
-	} else if len(outData) == 0x400000 {
-		// Recompute SIM2K-260 calibration launch-gate CRC-32
+	} else if len(outData) == 0x400000 && bm.isSIM2KDBLocked() {
+		// Recompute SIM2K-260 calibration launch-gate CRC-32 ONLY when SIM2K-260 DB is active
 		const calStart = 0x200700
 		const calEnd = 0x2AE700
 		const csAddr = 0x200404
 		calcCRC = CRC32MSB(outData[calStart:calEnd])
 		binary.LittleEndian.PutUint32(outData[csAddr:csAddr+4], calcCRC)
 	} else {
-		calcCRC = CRC32MSB(outData)
+		calcCRC = crc32.ChecksumIEEE(outData)
 	}
 
 	// Write to destination
@@ -612,35 +872,161 @@ func formatFileSize(size int64) string {
 	if size >= 1024*1024 {
 		return fmt.Sprintf("%.2f MB", float64(size)/(1024.0*1024.0))
 	}
-	return fmt.Sprintf("%.1f KB", float64(size)/1024.0)
+	if size >= 1024 {
+		return fmt.Sprintf("%.1f KB", float64(size)/1024.0)
+	}
+	return fmt.Sprintf("%d B", size)
 }
 
-// GetAvailableBins scans workspace directories for SIM2K-260, AWD ECU, and Kefico CPTSH TCU binary files
+func inferBinCategory(filename, folder string, sz int64) string {
+	lowerName := strings.ToLower(filename)
+	lowerDir := strings.ToLower(folder)
+
+	if strings.Contains(lowerName, "mdps") || strings.Contains(lowerDir, "mdps") || strings.Contains(lowerName, "eps_") {
+		return "MDPS Power Steering ECU"
+	}
+	if strings.Contains(lowerName, "awd") || strings.Contains(lowerDir, "awd") {
+		return "AWD ECU (95447-4J105)"
+	}
+	if sz == 0xBFC00 || sz == 0xC0000 || strings.Contains(lowerName, "tcu") || strings.Contains(lowerName, "cptsh") || strings.HasPrefix(lowerName, "ekm") || strings.Contains(lowerDir, "tcu") || strings.Contains(lowerDir, "cptsh") {
+		return "Kefico CPTSH 8AT TCU (95441-4J571)"
+	}
+	if sz == 0x400000 {
+		if strings.Contains(lowerDir, "claude_bins") {
+			return "SIM2K-260 Builds"
+		}
+		return "SIM2K-260 Engine ECU (4 MB)"
+	}
+	baseDir := filepath.Base(filepath.Clean(folder))
+	if baseDir != "." && baseDir != "" && baseDir != "/" && baseDir != "\\" {
+		return fmt.Sprintf("Custom Binary (%s)", baseDir)
+	}
+	return "Custom ECU Binary"
+}
+
+// GetAvailableBins scans workspace and custom directories for all ECU/TCU/AWD/MDPS/custom .bin files
 func (bm *BinManager) GetAvailableBins() []AvailableBin {
 	bm.mu.RLock()
-	currentActiveAbs, _ := filepath.Abs(bm.binPath)
+	var currentActiveAbs string
+	if bm.loaded && bm.binPath != "" {
+		currentActiveAbs, _ = filepath.Abs(bm.binPath)
+	}
+	activeDBPath := bm.dbPath
+	extraDirs := append([]string(nil), bm.extraScanDirs...)
+	extraFiles := append([]string(nil), bm.extraBinPaths...)
 	bm.mu.RUnlock()
 
-	searchDirs := []struct {
+	type scanEntry struct {
 		Dir      string
 		Category string
-	}{
-		{"Claude_Bins", "Claude Builds"},
-		{"dumps", "ECU Dumps"},
+	}
+
+	searchDirs := []scanEntry{
+		{"Claude_Bins", ""},
+		{"bins", ""},
+		{"dumps", ""},
+		{".", ""},
+		{"../Magna AWD/bins", "AWD ECU (95447-4J105)"},
+		{"../Magna AWD", "AWD ECU (95447-4J105)"},
 		{"mapping/awd", "AWD ECU (95447-4J105)"},
-		{".", "Root / Base Bins"},
 		{"../Kia SIM2K-260", "Kia SIM2K-260 Root"},
-		{"../Kia SIM2K-260/Claude_Bins", "Claude Builds"},
+		{"../Kia SIM2K-260/Claude_Bins", "SIM2K-260 Builds"},
 		{"../Kia SIM2K-260/dumps", "ECU Dumps"},
 		{"C:/Claude Projects/Kefico CPTSH/out", "Kefico CPTSH 8AT TCU (95441-4J571)"},
 		{"C:/Claude Projects/TCU Bins", "Kefico CPTSH 8AT TCU (95441-4J571)"},
 	}
 
+	// Automatically scan the active DB's directory and common binary subdirectories
+	if activeDBPath != "" {
+		dbDir := filepath.Dir(activeDBPath)
+		for _, sub := range []string{"", "bins", "out", "dumps", "cal", "Claude_Bins"} {
+			cand := dbDir
+			if sub != "" {
+				cand = filepath.Join(dbDir, sub)
+			}
+			searchDirs = append(searchDirs, scanEntry{Dir: cand, Category: ""})
+		}
+	}
+
+	// Scan user-registered custom directories and their binary subdirectories
+	for _, ed := range extraDirs {
+		if ed == "" {
+			continue
+		}
+		for _, sub := range []string{"", "bins", "out", "dumps", "cal"} {
+			cand := ed
+			if sub != "" {
+				cand = filepath.Join(ed, sub)
+			}
+			searchDirs = append(searchDirs, scanEntry{Dir: cand, Category: ""})
+		}
+	}
+
 	seen := make(map[string]bool)
 	var bins []AvailableBin
 
+	addBinFile := func(fullPath, displayFolder, defaultCat string) {
+		absPath, err := filepath.Abs(fullPath)
+		if err != nil {
+			return
+		}
+		absKey := strings.ToLower(filepath.Clean(absPath))
+		if seen[absKey] {
+			return
+		}
+		fi, err := os.Stat(absPath)
+		if err != nil || fi.IsDir() || fi.Size() < 32 {
+			return
+		}
+		seen[absKey] = true
+
+		relPath := filepath.ToSlash(fullPath)
+		if rp, err := filepath.Rel(".", absPath); err == nil && !strings.HasPrefix(rp, "..") {
+			relPath = filepath.ToSlash(rp)
+		} else {
+			relPath = filepath.ToSlash(absPath)
+		}
+
+		isActive := currentActiveAbs != "" && strings.EqualFold(absPath, currentActiveAbs)
+		cat := inferBinCategory(fi.Name(), displayFolder, fi.Size())
+		if defaultCat != "" && strings.HasPrefix(cat, "Custom") {
+			cat = defaultCat
+		}
+
+		folderLbl := filepath.ToSlash(displayFolder)
+		if folderLbl == "" {
+			folderLbl = filepath.ToSlash(filepath.Dir(relPath))
+		}
+
+		bins = append(bins, AvailableBin{
+			Path:      relPath,
+			Filename:  fi.Name(),
+			Folder:    folderLbl,
+			SizeBytes: fi.Size(),
+			SizeMB:    formatFileSize(fi.Size()),
+			ModTime:   fi.ModTime().Format("2006-01-02 15:04"),
+			IsActive:  isActive,
+			Category:  cat,
+		})
+	}
+
+	// Include currently loaded binary and explicitly registered custom binary files
+	if bm.IsLoaded() && bm.GetBinPath() != "" {
+		addBinFile(bm.GetBinPath(), filepath.Dir(bm.GetBinPath()), "")
+	}
+	for _, ef := range extraFiles {
+		if ef != "" {
+			addBinFile(ef, filepath.Dir(ef), "")
+		}
+	}
+
 	for _, sd := range searchDirs {
-		candidateDirs := []string{sd.Dir, filepath.Join("..", sd.Dir), filepath.Join("../..", sd.Dir)}
+		var candidateDirs []string
+		if filepath.IsAbs(sd.Dir) {
+			candidateDirs = []string{sd.Dir}
+		} else {
+			candidateDirs = []string{sd.Dir, filepath.Join("..", sd.Dir), filepath.Join("../..", sd.Dir)}
+		}
 		var targetDir string
 		for _, cd := range candidateDirs {
 			if fi, err := os.Stat(cd); err == nil && fi.IsDir() {
@@ -658,65 +1044,51 @@ func (bm *BinManager) GetAvailableBins() []AvailableBin {
 		}
 
 		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".bin") {
+			if e.IsDir() {
 				continue
 			}
-
-			fullPath := filepath.Join(targetDir, e.Name())
-			absPath, err := filepath.Abs(fullPath)
-			if err != nil {
+			ext := strings.ToLower(filepath.Ext(e.Name()))
+			if ext != ".bin" {
 				continue
 			}
-			absKey := strings.ToLower(filepath.Clean(absPath))
-			if seen[absKey] {
-				continue
-			}
-
-			fi, err := e.Info()
-			if err != nil {
-				continue
-			}
-
-			sz := fi.Size()
-			lowerName := strings.ToLower(e.Name())
-			// Accept 4 MB SIM2K-260 bins, 16KB/32KB/48KB AWD ECU bins, and 767KB/768KB Kefico CPTSH TCU bins
-			isAwd := strings.HasPrefix(lowerName, "awd_") || sz == 0xC000 || sz == 0x8000 || sz == 0x4000
-			isTcu := sz == 0xBFC00 || sz == 0xC0000 || strings.HasPrefix(lowerName, "tcu") || strings.HasPrefix(lowerName, "ekm")
-			if sz != 0x400000 && !isAwd && !isTcu {
-				continue
-			}
-
-			seen[absKey] = true
-			relPath := filepath.ToSlash(fullPath)
-			if rp, err := filepath.Rel(".", fullPath); err == nil && !strings.HasPrefix(rp, "..") {
-				relPath = filepath.ToSlash(rp)
-			}
-
-			isActive := strings.EqualFold(absPath, currentActiveAbs)
-			cat := sd.Category
-			if isTcu {
-				cat = "Kefico CPTSH 8AT TCU (95441-4J571)"
-			} else if isAwd {
-				cat = "AWD ECU (95447-4J105)"
-			}
-
-			bins = append(bins, AvailableBin{
-				Path:      relPath,
-				Filename:  e.Name(),
-				Folder:    sd.Dir,
-				SizeBytes: sz,
-				SizeMB:    formatFileSize(sz),
-				ModTime:   fi.ModTime().Format("2006-01-02 15:04"),
-				IsActive:  isActive,
-				Category:  cat,
-			})
+			addBinFile(filepath.Join(targetDir, e.Name()), targetDir, sd.Category)
 		}
 	}
 
-	// Sort active first, then by mod time descending
+	// Sort active first, then bins matching active DB stem/directory, then by mod time descending
+	activeDBStem := strings.ToLower(strings.TrimSuffix(filepath.Base(activeDBPath), filepath.Ext(activeDBPath)))
+	activeDBDir := ""
+	if activeDBPath != "" {
+		if absDB, err := filepath.Abs(activeDBPath); err == nil {
+			activeDBDir = strings.ToLower(filepath.Dir(absDB))
+		}
+	}
+
+	binPriority := func(b AvailableBin) int {
+		if b.IsActive {
+			return 0
+		}
+		if activeDBDir != "" {
+			if absB, err := filepath.Abs(b.Path); err == nil {
+				bDir := strings.ToLower(filepath.Dir(absB))
+				if bDir != strings.ToLower(mustAbs(".")) && strings.HasPrefix(bDir, activeDBDir) {
+					return 1
+				}
+			}
+		}
+		if activeDBStem != "" && activeDBStem != "flash_analysis" {
+			tok := firstToken(activeDBStem)
+			if len(tok) >= 3 && strings.Contains(strings.ToLower(b.Filename), tok) {
+				return 2
+			}
+		}
+		return 3
+	}
+
 	sort.Slice(bins, func(i, j int) bool {
-		if bins[i].IsActive != bins[j].IsActive {
-			return bins[i].IsActive
+		pi, pj := binPriority(bins[i]), binPriority(bins[j])
+		if pi != pj {
+			return pi < pj
 		}
 		return bins[i].ModTime > bins[j].ModTime
 	})
@@ -724,10 +1096,27 @@ func (bm *BinManager) GetAvailableBins() []AvailableBin {
 	return bins
 }
 
+func mustAbs(p string) string {
+	a, err := filepath.Abs(p)
+	if err != nil {
+		return p
+	}
+	return a
+}
+
+func firstToken(s string) string {
+	for _, sep := range []string{"_", "-", ".", " "} {
+		if idx := strings.Index(s, sep); idx > 0 {
+			return s[:idx]
+		}
+	}
+	return s
+}
+
 // SaveUploadedBin writes an uploaded binary file and switches to it
 func (bm *BinManager) SaveUploadedBin(filename string, data []byte) (string, error) {
-	if len(data) < 1024 {
-		return "", fmt.Errorf("invalid binary size: %d bytes (must be at least 1,024 bytes)", len(data))
+	if len(data) < 32 {
+		return "", fmt.Errorf("invalid binary size: %d bytes (must be at least 32 bytes)", len(data))
 	}
 
 	cleanName := filepath.Base(filename)
@@ -736,7 +1125,7 @@ func (bm *BinManager) SaveUploadedBin(filename string, data []byte) (string, err
 	}
 
 	saveDir := "Claude_Bins"
-	if _, err := os.Stat(saveDir); os.IsNotExist(err) {
+	if err := os.MkdirAll(saveDir, 0755); err != nil {
 		saveDir = "."
 	}
 
@@ -751,5 +1140,3 @@ func (bm *BinManager) SaveUploadedBin(filename string, data []byte) (string, err
 
 	return filepath.ToSlash(targetPath), nil
 }
-
-

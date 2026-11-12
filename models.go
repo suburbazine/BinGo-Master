@@ -31,6 +31,7 @@ type Stats struct {
 	DeadMapCount       int `json:"dead_map_count"`
 	TorqueMapCount     int `json:"torque_map_count"`
 	GatedMapCount      int `json:"gated_map_count"`
+	CustomOSMapCount   int `json:"custom_os_map_count"`
 }
 
 // MatrixCell represents an element in the cross-partition interaction matrix
@@ -92,11 +93,13 @@ type CalMap struct {
 
 // MapDataResponse contains the map descriptor, axes, and 2D grid of values
 type MapDataResponse struct {
-	Map      CalMap        `json:"map"`
-	XAxis    []AxisPoint   `json:"x_axis"`
-	YAxis    []AxisPoint   `json:"y_axis"`
-	Cells    [][]CellPoint `json:"cells"`
-	IsEdited bool          `json:"is_edited"`
+	Map       CalMap        `json:"map"`
+	XAxis     []AxisPoint   `json:"x_axis"`
+	YAxis     []AxisPoint   `json:"y_axis"`
+	Cells     [][]CellPoint `json:"cells"`
+	IsEdited  bool          `json:"is_edited"`
+	BinLoaded bool          `json:"bin_loaded"`
+	BinError  string        `json:"bin_error,omitempty"`
 }
 
 // AxisPoint holds coordinate header info
@@ -305,11 +308,13 @@ type AvailableBin struct {
 
 // BinListResponse is the API response for /api/bin/list
 type BinListResponse struct {
-	ActivePath string         `json:"active_path"`
-	ActiveName string         `json:"active_name"`
-	ActiveDB   string         `json:"active_db"`
-	Bins       []AvailableBin `json:"bins"`
-	DBs        []AvailableDB  `json:"dbs,omitempty"`
+	ActivePath   string         `json:"active_path"`
+	ActiveName   string         `json:"active_name"`
+	BinLoaded    bool           `json:"bin_loaded"`
+	ActiveDB     string         `json:"active_db"`
+	ActiveDBName string         `json:"active_db_name"`
+	Bins         []AvailableBin `json:"bins"`
+	DBs          []AvailableDB  `json:"dbs,omitempty"`
 }
 
 // AvailableDB represents a discovered SQLite analysis database (.db)
@@ -321,7 +326,15 @@ type AvailableDB struct {
 	SizeMB    string `json:"size_mb"`
 	ModTime   string `json:"mod_time"`
 	IsActive  bool   `json:"is_active"`
+	IsCustom  bool   `json:"is_custom"`
 	Category  string `json:"category"`
+}
+
+// CustomSourcesConfig persists user-mounted external DBs, bins, and scan folders
+type CustomSourcesConfig struct {
+	DBPaths  []string `json:"db_paths"`
+	BinPaths []string `json:"bin_paths"`
+	ScanDirs []string `json:"scan_dirs"`
 }
 
 

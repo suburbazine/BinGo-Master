@@ -3,68 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BinGo Master - ECU Calibration & Binary Architecture Studio</title>
+    <title>BinGo Master — 3D Calibration &amp; Binary Architecture Studio</title>
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="app.css">
 </head>
 <body>
     <header class="app-header">
         <div class="brand">
-            <div class="brand-logo">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <div class="brand-logo" title="BinGo Master — 3D Calibration &amp; Binary Architecture Studio">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <rect x="2" y="2" width="20" height="20" rx="4"></rect>
                     <path d="M6 6h12v12H6z"></path>
                     <path d="M9 12h6"></path>
                     <path d="M12 9v6"></path>
                 </svg>
             </div>
-            <div class="brand-text">
+            <div class="brand-text" title="BinGo Master — 3D Calibration &amp; Binary Architecture Studio">
                 <h1>BinGo <span>Master</span></h1>
-                <span class="sub">ECU Calibration & Binary Architecture Studio</span>
+                <span class="sub">3D Calibration &amp; Binary Architecture Studio</span>
             </div>
         </div>
 
         <nav class="nav-tabs">
-            <button class="nav-tab active" data-tab="dashboard">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            <button class="nav-tab active" data-tab="dashboard" title="Architecture Overview &amp; Cross-Partition Matrix">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                 Dashboard
             </button>
-            <button class="nav-tab" data-tab="maps">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M19 9l-5 5-4-4-3 3"></path></svg>
-                Calibration Maps
+            <button class="nav-tab" data-tab="maps" title="Calibration Maps (2D Grid, 3D Surface, 3D Bars &amp; Split 2D+3D)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M19 9l-5 5-4-4-3 3"></path></svg>
+                3D Maps
             </button>
-            <button class="nav-tab" data-tab="dflash">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="M6 8h.01"></path><path d="M10 8h.01"></path><path d="M14 8h.01"></path><path d="M18 8h.01"></path><path d="M6 12h12"></path><path d="M6 16h8"></path></svg>
-                DFLASH / FEE
+            <button class="nav-tab" data-tab="dflash" title="DFLASH / FEE EEPROM Inspector">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="M6 8h.01"></path><path d="M10 8h.01"></path><path d="M14 8h.01"></path><path d="M18 8h.01"></path><path d="M6 12h12"></path><path d="M6 16h8"></path></svg>
+                DFLASH
             </button>
-            <button class="nav-tab" data-tab="ram">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                RAM Dictionary
+            <button class="nav-tab" data-tab="ram" title="Curated Engine State RAM Dictionary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                RAM
             </button>
-            <button class="nav-tab" data-tab="dids">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+            <button class="nav-tab" data-tab="dids" title="Supported UDS Diagnostic Data Identifiers">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
                 UDS DIDs
             </button>
-            <button class="nav-tab" data-tab="disasm">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-                Disassembly
+            <button class="nav-tab" data-tab="disasm" title="Function &amp; Disassembly Browser">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                Disasm
             </button>
         </nav>
 
         <div class="header-actions">
-            <!-- Active Bin Selector Button -->
-            <div class="bin-selector-btn" id="btn-open-bin-modal" title="Click to switch calibration binary or upload a new .bin file">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            <!-- Active DB & Bin Selector Button -->
+            <div class="bin-selector-btn" id="btn-open-bin-modal" title="Click to switch or load custom ECU .db databases and .bin files">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
                 <div class="bin-btn-info">
-                    <span class="bin-btn-lbl">ACTIVE BIN</span>
+                    <span class="bin-btn-lbl" id="hdr-db-lbl">DB: Loading...</span>
                     <span class="bin-btn-name" id="hdr-bin-name">Loading...</span>
                 </div>
-                <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                <svg class="chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
             </div>
 
-            <button class="btn btn-outline" id="btn-view-diffs" title="View pending session edits">
+            <button class="btn btn-outline" id="btn-view-diffs" style="padding:4px 8px; font-size:11.5px; white-space:nowrap;" title="View pending session edits">
                 <span class="badge" id="diff-counter">0</span> Diffs
             </button>
-            <button class="btn btn-primary" id="btn-export-bin" title="Export modified binary with valid CRC">
+            <button class="btn btn-primary" id="btn-export-bin" style="padding:4px 9px; font-size:11.5px; white-space:nowrap;" title="Export modified binary with valid CRC">
                 Export Bin
             </button>
             <div class="status-indicator" id="system-status" title="System Status: Connected">
@@ -86,27 +87,27 @@
                 <div class="stat-card">
                     <div class="stat-label">Reconstructed Functions</div>
                     <div class="stat-val" id="stat-functions">-</div>
-                    <div class="stat-meta">TriCore 1.6.2 entry points</div>
+                    <div class="stat-meta" id="stat-functions-meta">Decoded firmware entry points</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Direct & Indirect Calls</div>
+                    <div class="stat-label">Direct &amp; Indirect Calls</div>
                     <div class="stat-val" id="stat-calls">-</div>
-                    <div class="stat-meta">Call edges & trampolines</div>
+                    <div class="stat-meta">Call edges &amp; trampolines</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Resolved Memory Accesses</div>
                     <div class="stat-val" id="stat-mem">-</div>
-                    <div class="stat-meta">PFLASH, SRAM, DFLASH, SFRs</div>
+                    <div class="stat-meta">Flash, SRAM, NVM &amp; SFRs</div>
                 </div>
-                <div class="stat-card">
+                <div class="stat-card" style="cursor:pointer;" onclick="switchToTab('maps');" title="Click to open 3D Calibration Map Editor">
                     <div class="stat-label">Calibration Maps</div>
                     <div class="stat-val" id="stat-maps">-</div>
-                    <div class="stat-meta">3D, 2D curves & scalars</div>
+                    <div class="stat-meta">3D surfaces, 2D curves &amp; scalars</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-label">DFLASH EEPROM Blocks</div>
+                <div class="stat-card" style="cursor:pointer;" onclick="switchToTab('dflash');" title="Click to inspect DFLASH / FEE blocks">
+                    <div class="stat-label">DFLASH / NVM Blocks</div>
                     <div class="stat-val" id="stat-dflash">-</div>
-                    <div class="stat-meta">192 KB Ping-Pong wear-level</div>
+                    <div class="stat-meta" id="stat-dflash-meta">EEPROM &amp; identity blocks</div>
                 </div>
                 <div class="stat-card" style="border-left: 3px solid var(--green); cursor: pointer;" onclick="switchToTab('maps'); filterMapsByApp('LIVE_ACTUATOR');" title="Click to view live actuator maps">
                     <div class="stat-label">Live Actuator Maps</div>
@@ -116,7 +117,7 @@
                 <div class="stat-card" style="border-left: 3px solid var(--red); cursor: pointer;" onclick="switchToTab('maps'); filterMapsByApp('DEAD_INACTIVE');" title="Click to inspect dead/inapplicable or identity maps">
                     <div class="stat-label" id="stat-dead-maps-lbl">Inapplicable / Dead Maps</div>
                     <div class="stat-val" id="stat-dead-maps" style="color: var(--red);">-</div>
-                    <div class="stat-meta" id="stat-dead-maps-meta">Optimal spark & unreferenced</div>
+                    <div class="stat-meta" id="stat-dead-maps-meta">Optimal spark &amp; unreferenced</div>
                 </div>
             </div>
 
@@ -124,7 +125,7 @@
                 <!-- Partitions Overview -->
                 <div class="panel">
                     <div class="panel-header">
-                        <h2 id="hdr-partitions-title">Flash Partitions & Memory Architecture</h2>
+                        <h2 id="hdr-partitions-title">Flash Partitions &amp; Memory Architecture</h2>
                         <span class="badge info" id="stat-partitions-badge">- Partitions</span>
                     </div>
                     <div class="panel-body table-responsive">
@@ -163,7 +164,7 @@
             </div>
         </section>
 
-        <!-- TAB 2: CALIBRATION MAPS -->
+        <!-- TAB 2: CALIBRATION MAPS (3D STUDIO) -->
         <section id="tab-maps" class="tab-content">
             <div class="split-view">
                 <!-- Map Sidebar & List -->
@@ -173,6 +174,9 @@
                         <div class="app-pills-bar" id="map-app-pills">
                             <button class="app-pill active" data-app="ALL" title="View all calibration tables">
                                 All <span class="app-pill-count" id="pill-cnt-all">-</span>
+                            </button>
+                            <button class="app-pill" id="pill-cos-btn" data-app="CUSTOM_OS" style="display:none; border-color:rgba(245,158,11,0.55); color:#fbbf24;" title="View Custom OS calibration tables">
+                                &#9889; Custom OS <span class="app-pill-count" id="pill-cnt-cos">0</span>
                             </button>
                             <button class="app-pill pill-live" data-app="LIVE_ACTUATOR" title="Actively modulates hardware">
                                 Live Actuator <span class="app-pill-count" id="pill-cnt-live">-</span>
@@ -195,9 +199,9 @@
                         <div class="select-row">
                             <select id="map-type-filter">
                                 <option value="ALL">All Table Types (3D Surface Maps, 1D Curves, Scalars)</option>
-                                <option value="eZweidim">2D / 3D Surface Map (X×Y→Z / eZweidim)</option>
+                                <option value="eZweidim">2D / 3D Surface Map (X&times;Y&rarr;Z / eZweidim)</option>
                                 <option value="eZweiInv">Inverted Surface Map (eZweiInv)</option>
-                                <option value="eEindim">1D Curve / Axis (X→Y / eEindim)</option>
+                                <option value="eEindim">1D Curve / Axis (X&rarr;Y / eEindim)</option>
                                 <option value="eEinzel">Scalar / Constant (eEinzel)</option>
                             </select>
                             <input type="hidden" id="map-app-filter" value="ALL">
@@ -211,87 +215,89 @@
                     </div>
                 </div>
 
-                <!-- Map Detail & Grid Editor -->
+                <!-- Map Detail & Grid / 3D Editor -->
                 <div class="main-panel">
                     <div id="map-editor-placeholder" class="empty-state">
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"></path><path d="M19 9l-5 5-4-4-3 3"></path></svg>
                         <h3>Select a calibration map from the list</h3>
-                        <p>Inspect and edit calibration tables in 2D Rainbow Grid or interactive 3D Surface view.</p>
+                        <p>Inspect and edit calibration tables in 2D Rainbow Heatmap Grid, interactive 3D Colored Surface Mesh, or 3D Colored Bar Towers.</p>
                     </div>
 
                     <div id="map-editor-content" class="map-editor" style="display:none;">
                         <div class="editor-header">
-                            <div>
-                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                                    <h2 id="cur-map-name" style="margin: 0;">-</h2>
+                            <div style="min-width:0; flex:1 1 auto;">
+                                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                    <h2 id="cur-map-name" style="margin: 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">-</h2>
                                     <span class="badge" id="cur-map-app">-</span>
-                                </div>
-                                <div class="editor-meta">
-                                    <span class="meta-tag" id="cur-map-folder">-</span>
-                                    <span class="meta-tag" id="cur-map-offset">-</span>
-                                    <span class="meta-tag" id="cur-map-ea">-</span>
-                                    <span class="meta-tag" id="cur-map-dims">-</span>
-                                    <span class="meta-tag" id="cur-map-org">-</span>
-                                    <span class="meta-tag" id="cur-map-unit">-</span>
+                                    <div class="editor-meta">
+                                        <span class="meta-tag" id="cur-map-folder">-</span>
+                                        <span class="meta-tag" id="cur-map-offset">-</span>
+                                        <span class="meta-tag" id="cur-map-ea">-</span>
+                                        <span class="meta-tag" id="cur-map-dims">-</span>
+                                        <span class="meta-tag" id="cur-map-org">-</span>
+                                        <span class="meta-tag" id="cur-map-unit">-</span>
+                                    </div>
+                                    <div class="map-references" id="cur-map-refs" style="padding:0; border:none; background:transparent;"></div>
                                 </div>
                             </div>
-                            <div class="editor-actions">
+                            <div class="editor-actions" style="flex-wrap:nowrap; justify-content:flex-end; flex-shrink:0; gap:6px;">
                                 <div class="unit-toggle" id="view-mode-toggle" style="background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.35);">
                                     <label style="color: #6ee7b7; font-weight: 600;"><input type="radio" name="map-view-mode" value="grid" checked> 2D Grid</label>
                                     <label style="color: #6ee7b7; font-weight: 600;"><input type="radio" name="map-view-mode" value="surface3d"> 3D Surface</label>
+                                    <label style="color: #6ee7b7; font-weight: 600;"><input type="radio" name="map-view-mode" value="bars3d"> 3D Bars</label>
+                                    <label style="color: #6ee7b7; font-weight: 600;" title="Side-by-side 2D Grid + Interactive 3D Plot"><input type="radio" name="map-view-mode" value="split"> Split 2D+3D</label>
                                 </div>
                                 <div class="unit-toggle">
-                                    <label><input type="radio" name="val-display" value="physical" checked> Scaled Physical</label>
-                                    <label><input type="radio" name="val-display" value="raw"> Raw Hex/Int</label>
+                                    <label><input type="radio" name="val-display" value="physical" checked> Physical</label>
+                                    <label><input type="radio" name="val-display" value="raw"> Raw</label>
                                 </div>
                                 <div class="unit-toggle" style="background: rgba(30, 64, 175, 0.15); border-color: rgba(96, 165, 250, 0.3);">
                                     <label style="color: #93c5fd; font-weight: 600; cursor: pointer;">
-                                        <input type="checkbox" id="toggle-heatmap" checked style="accent-color: var(--accent);"> Rainbow Heatmap
+                                        <input type="checkbox" id="toggle-heatmap" checked style="accent-color: var(--accent);"> Heatmap
                                     </label>
                                 </div>
-                                <button class="btn btn-secondary" id="btn-reset-map">Revert Map</button>
-                                <button class="btn btn-primary" id="btn-save-map">Apply Edits</button>
+                                <button class="btn btn-secondary" id="btn-reset-map" style="padding:4px 8px; font-size:11.5px;">Revert</button>
+                                <button class="btn btn-primary" id="btn-save-map" style="padding:4px 9px; font-size:11.5px;">Apply Edits</button>
                             </div>
                         </div>
 
-                        <div id="cur-map-app-note" class="map-app-alert" style="display:none;"></div>
-
-                        <div class="map-references" id="cur-map-refs">
-                            <!-- Ref functions links -->
+                        <div class="editor-substrip">
+                            <div id="cur-map-app-note" class="map-app-alert" style="display:none;"></div>
+                            <!-- Rainbow Heatmap Scale Legend -->
+                            <div id="map-heatmap-legend" class="map-heatmap-legend" style="display:none;"></div>
                         </div>
 
-                        <!-- Rainbow Heatmap Scale Legend -->
-                        <div id="map-heatmap-legend" class="map-heatmap-legend" style="display:none;"></div>
+                        <div class="map-editor-workspace" id="map-editor-workspace">
+                            <div class="grid-wrapper" id="map-grid-wrapper">
+                                <table class="grid-table" id="map-grid">
+                                    <!-- Dynamic 2D grid -->
+                                </table>
+                            </div>
 
-                        <div class="grid-wrapper" id="map-grid-wrapper">
-                            <table class="grid-table" id="map-grid">
-                                <!-- Dynamic 2D grid -->
-                            </table>
-                        </div>
-
-                        <div class="surface3d-wrapper" id="map-surface3d-wrapper" style="display:none;">
-                            <div class="surface3d-toolbar">
-                                <span class="surface3d-hint"><strong>3D Surface Plot:</strong> Drag: Rotate &bull; Right-Drag / Shift-Drag: Pan &bull; Scroll: Zoom to cursor &bull; Click node: Edit</span>
-                                <div style="display:flex; align-items:center; gap:10px;">
-                                    <div class="view-mode-switch" style="padding:1px;">
-                                        <label class="view-mode-pill" title="Left-click drag rotates the 3D surface">
-                                            <input type="radio" name="surface3d-drag-mode" value="rotate" checked>
-                                            <span style="padding:1px 7px; font-size:10px;">Rotate</span>
+                            <div class="surface3d-wrapper" id="map-surface3d-wrapper" style="display:none;">
+                                <div class="surface3d-toolbar">
+                                    <span class="surface3d-hint"><strong>3D Plot:</strong> Drag: Rotate &bull; Right/Shift-Drag: Pan &bull; Scroll: Zoom &bull; Click cell: Edit</span>
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <div class="view-mode-switch">
+                                            <label class="view-mode-pill" title="Left-click drag rotates the 3D plot">
+                                                <input type="radio" name="surface3d-drag-mode" value="rotate" checked>
+                                                <span>Rotate</span>
+                                            </label>
+                                            <label class="view-mode-pill" title="Left-click drag pans/moves the 3D plot inside the viewport">
+                                                <input type="radio" name="surface3d-drag-mode" value="pan">
+                                                <span>Pan</span>
+                                            </label>
+                                        </div>
+                                        <label style="font-size:11px; color:var(--text-muted); cursor:pointer; display:flex; align-items:center; gap:4px;">
+                                            <input type="checkbox" id="toggle-3d-wireframe" checked> Mesh
                                         </label>
-                                        <label class="view-mode-pill" title="Left-click drag pans/moves the 3D surface inside the viewport">
-                                            <input type="radio" name="surface3d-drag-mode" value="pan">
-                                            <span style="padding:1px 7px; font-size:10px;">Pan / Move</span>
-                                        </label>
+                                        <button class="btn btn-sm btn-outline" id="btn-3d-reset-cam" style="padding:2px 8px; font-size:11px;">Fit / Reset View</button>
                                     </div>
-                                    <label style="font-size:11px; color:var(--text-muted); cursor:pointer; display:flex; align-items:center; gap:4px;">
-                                        <input type="checkbox" id="toggle-3d-wireframe" checked> Mesh Lines
-                                    </label>
-                                    <button class="btn btn-sm btn-outline" id="btn-3d-reset-cam" style="padding:2px 8px; font-size:11px;">Reset View</button>
                                 </div>
-                            </div>
-                            <div class="surface3d-canvas-box">
-                                <canvas id="map-surface3d-canvas"></canvas>
-                                <div id="surface3d-tooltip" class="surface3d-tooltip" style="display:none;"></div>
+                                <div class="surface3d-canvas-box">
+                                    <canvas id="map-surface3d-canvas"></canvas>
+                                    <div id="surface3d-tooltip" class="surface3d-tooltip" style="display:none;"></div>
+                                </div>
                             </div>
                         </div>
 
@@ -363,10 +369,10 @@
                 <div class="panel">
                     <div class="panel-header">
                         <h2>Curated Engine State Variables (SRAM / DSPR / LMU)</h2>
-                        <span class="subtitle">Searchable dictionary with real-time producer & consumer resolution</span>
+                        <span class="subtitle">Searchable dictionary with real-time producer &amp; consumer resolution</span>
                     </div>
                     <div class="panel-body">
-                        <div class="search-box mb-3">
+                        <div class="search-box" style="margin-bottom: 10px;">
                             <input type="text" id="ram-curated-search" placeholder="Filter variables (RPM, TOIL, Spark, Boost, IMMO, SDA...)" autocomplete="off">
                         </div>
                         <div class="table-responsive">
@@ -393,15 +399,15 @@
                     </div>
                 </div>
 
-                <div class="panel mt-4">
+                <div class="panel" style="margin-top: 16px;">
                     <div class="panel-header">
-                        <h2>RAM Address Inspector & Variable Explorer</h2>
+                        <h2>RAM Address Inspector &amp; Variable Explorer</h2>
                         <span class="subtitle">Inspect any DSPR or LMU address (0xD0000000..0xD003FFFF / 0xB0000000..0xB003FFFF)</span>
                     </div>
                     <div class="panel-body">
-                        <div class="input-group mb-3">
+                        <div style="display:flex; gap:8px; margin-bottom:12px;">
                             <input type="text" id="ram-inspect-input" placeholder="Enter RAM Address e.g. 0xD001166A" class="form-control">
-                            <button class="btn btn-primary" id="btn-inspect-ram">Inspect Address</button>
+                            <button class="btn btn-primary" id="btn-inspect-ram" style="white-space:nowrap;">Inspect Address</button>
                         </div>
                         <div id="ram-inspect-result" style="display:none;">
                             <!-- Dynamic Producer/Consumer breakdown -->
@@ -417,29 +423,31 @@
                 <div class="panel-header">
                     <h2>Supported UDS Diagnostic Data Identifiers (Service 0x22 / 0x2E)</h2>
                     <span class="subtitle">Gated diagnostics, security requirements, and memory mapping</span>
+                </div>
                 <div class="panel-body">
-                    <div class="search-box mb-3">
+                    <div class="search-box" style="margin-bottom: 10px;">
                         <input type="text" id="did-search" placeholder="Filter diagnostic identifiers (e.g. F1D0, Ghost Cam, VIN, F190, 0x2E)..." autocomplete="off">
                     </div>
                     <div class="table-responsive">
                         <table class="data-table" id="table-dids">
-                        <thead>
-                            <tr>
-                                <th>DID</th>
-                                <th>Identifier Name</th>
-                                <th>Access</th>
-                                <th>Allowed Sessions</th>
-                                <th>Security Gating</th>
-                                <th>Memory Target</th>
-                                <th>Length</th>
-                                <th>Handler Routine</th>
-                                <th>Description</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr><td colspan="9" class="loading">Loading UDS DIDs...</td></tr>
-                        </tbody>
-                    </table>
+                            <thead>
+                                <tr>
+                                    <th>DID</th>
+                                    <th>Identifier Name</th>
+                                    <th>Access</th>
+                                    <th>Allowed Sessions</th>
+                                    <th>Security Gating</th>
+                                    <th>Memory Target</th>
+                                    <th>Length</th>
+                                    <th>Handler Routine</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td colspan="9" class="loading">Loading UDS DIDs...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </section>
@@ -477,8 +485,8 @@
                     <div id="fn-editor-placeholder" class="empty-state">
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
                         <h3>Select a function to disassemble</h3>
-                        <p>Browse 9,988 decoded TriCore functions, examine callers, callees, and memory accesses.</p>
-                        <div class="quick-jump-chips">
+                        <p id="fn-placeholder-desc">Browse decoded firmware functions, examine callers, callees, and memory accesses.</p>
+                        <div class="quick-jump-chips" id="fn-quick-jump-chips">
                             <span>Quick Jump:</span>
                             <button class="chip" data-fn="0x8010BAE8">0x8010BAE8 UDS Dispatcher</button>
                             <button class="chip" data-fn="0x801E08D4">0x801E08D4 IMMO Task</button>
@@ -578,7 +586,7 @@
                 <h4>Active Payload Hex Dump</h4>
                 <div class="hex-viewer" id="modal-dflash-hex"></div>
 
-                <h4 class="mt-3">Wear-Leveling Revision Timeline Across Generations</h4>
+                <h4 style="margin-top: 12px;">Wear-Leveling Revision Timeline Across Generations</h4>
                 <div class="timeline" id="modal-dflash-timeline"></div>
             </div>
         </div>
@@ -620,7 +628,7 @@
                 <button class="modal-close" id="modal-diffs-close">&times;</button>
             </div>
             <div class="modal-body">
-                <p>Tracked cell modifications held in memory. Original bin files are strictly preserved.</p>
+                <p style="margin-bottom: 10px;">Tracked cell modifications held in memory. Original bin files are strictly preserved.</p>
                 <div class="table-responsive">
                     <table class="data-table" id="table-diffs">
                         <thead>
@@ -673,33 +681,58 @@
         </div>
     </div>
 
-    <!-- MODAL: BIN SELECTOR & UPLOAD -->
+    <!-- MODAL: ECU DATABASE (.db) & BINARY (.bin) SELECTOR / UPLOADER -->
     <div class="modal" id="modal-bin-selector">
-        <div class="modal-dialog modal-md">
+        <div class="modal-dialog modal-lg" style="max-width: 740px;">
             <div class="modal-header">
                 <div>
-                    <h3 style="margin: 0;">Switch Calibration Binary</h3>
-                    <span class="subtitle" style="font-size: 11px; color: var(--text-muted);">Select from workspace builds or upload a 4 MB SIM2K-260 binary</span>
+                    <h3 style="margin: 0;">ECU Database (.db) &amp; Calibration Binary (.bin) Manager</h3>
+                    <span class="subtitle" style="font-size: 11px; color: var(--text-muted);">Load custom analysis databases (e.g. MDPS, TCU, AWD, ECU) alongside their firmware / calibration binaries</span>
                 </div>
                 <button class="modal-close" id="modal-bin-close">&times;</button>
             </div>
             <div class="modal-body">
-                <!-- Upload Dropzone -->
+                <!-- Active Session Summary -->
+                <div class="active-pair-banner" id="modal-active-summary">
+                    <div class="active-pair-item">
+                        <span class="pair-lbl">ACTIVE DATABASE (.db)</span>
+                        <span class="pair-val" id="modal-cur-db">-</span>
+                    </div>
+                    <div class="active-pair-divider"></div>
+                    <div class="active-pair-item">
+                        <span class="pair-lbl">ACTIVE BINARY (.bin)</span>
+                        <span class="pair-val" id="modal-cur-bin">-</span>
+                    </div>
+                </div>
+
+                <!-- Unified Upload Dropzone (.db and .bin) -->
                 <div class="upload-dropzone" id="bin-dropzone">
-                    <input type="file" id="bin-file-input" accept=".bin" style="display: none;">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                    <div style="font-weight: 600; margin-top: 6px;">Drop a 4 MB .bin file here, or <a href="#" id="btn-browse-bin" style="color: var(--accent); text-decoration: underline;">browse file</a></div>
-                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Accepts full 4,194,304-byte TC1797 flash images</div>
+                    <input type="file" id="db-file-input" accept=".db,.sqlite,.sqlite3" style="display: none;">
+                    <input type="file" id="bin-file-input" accept=".bin" multiple style="display: none;">
+                    <input type="file" id="any-file-input" accept=".db,.sqlite,.sqlite3,.bin" multiple style="display: none;">
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    <div style="font-weight: 600; margin-top: 6px;">Drop custom <code>.db</code> and/or <code>.bin</code> file(s) here</div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Supports dropping a custom SQLite <code>.db</code> together with one or more <code>.bin</code> files of any size</div>
+                    <div class="dropzone-actions" style="margin-top: 10px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
+                        <button type="button" class="btn btn-primary" id="btn-upload-db">Upload Custom .db</button>
+                        <button type="button" class="btn btn-secondary" id="btn-browse-bin">Upload .bin File(s)</button>
+                    </div>
                 </div>
 
-                <!-- Filter / Search Bins -->
-                <div class="search-box" style="margin: 14px 0 10px 0;">
-                    <input type="text" id="bin-filter-input" placeholder="Filter binaries by name (e.g. v103, v94, Sleepy, Crackle)..." autocomplete="off">
+                <!-- Mount Local Disk File or Folder Path (Zero-Copy) -->
+                <div class="custom-path-bar" style="margin-top: 10px;">
+                    <input type="text" id="custom-path-input" class="form-control" placeholder="Or mount local .db, .bin, or folder path (e.g. C:\...\MDPS\mdps.db or C:\...\MDPS)" autocomplete="off">
+                    <button type="button" class="btn btn-outline" id="btn-load-custom-path" style="white-space: nowrap;">Mount Path</button>
                 </div>
 
-                <!-- Bin List Container -->
+                <!-- Filter / Search DBs & Bins -->
+                <div class="search-box" style="margin: 12px 0 10px 0;">
+                    <input type="text" id="bin-filter-input" placeholder="Filter databases &amp; binaries by name or ECU (e.g. mdps, tcu, awd, stock)..." autocomplete="off">
+                </div>
+
+                <!-- DB & Bin List Container -->
                 <div class="bin-list" id="available-bins-list">
-                    <div class="loading">Scanning available binaries...</div>
+                    <div class="loading">Scanning available databases &amp; binaries...</div>
                 </div>
             </div>
         </div>

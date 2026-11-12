@@ -29,6 +29,9 @@
 Claude_Bins/
 dumps/
 bins/
+dbs/
+custom_dbs/
+custom_sources.json
 
 # OS and Editor files
 .DS_Store

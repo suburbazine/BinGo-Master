@@ -41,7 +41,25 @@ func findExistingPath(candidates []string) string {
 	return candidates[0]
 }
 
+func resolveUserFlagPath(p, origWD string) string {
+	if p == "" || filepath.IsAbs(p) {
+		return p
+	}
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	if origWD != "" {
+		cand := filepath.Join(origWD, p)
+		if _, err := os.Stat(cand); err == nil {
+			return cand
+		}
+	}
+	return p
+}
+
 func main() {
+	origWD, _ := os.Getwd()
+
 	// Ensure working directory is executable's directory if launched from a shortcut
 	if exePath, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exePath)
@@ -76,10 +94,28 @@ func main() {
 	})
 
 	portFlag := flag.Int("port", 8080, "Port for BinGo Master web server")
-	dbFlag := flag.String("db", defaultDB, "Path to flash_analysis.db SQLite database")
-	binFlag := flag.String("bin", defaultBin, "Path to calibration binary file")
+	dbFlag := flag.String("db", defaultDB, "Path to ECU SQLite analysis database (.db)")
+	binFlag := flag.String("bin", defaultBin, "Path to calibration/firmware binary file (.bin)")
 	openFlag := flag.Bool("open", false, "Automatically open BinGo Master in the default web browser")
 	flag.Parse()
+
+	explicitDB := false
+	explicitBin := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "db" {
+			explicitDB = true
+		}
+		if f.Name == "bin" {
+			explicitBin = true
+		}
+	})
+
+	resolvedDB := resolveUserFlagPath(*dbFlag, origWD)
+	resolvedBin := resolveUserFlagPath(*binFlag, origWD)
+	if explicitDB && !explicitBin && !isBuiltinDBName(filepath.Base(resolvedDB)) {
+		// Don't preload a default SIM2K binary onto an explicitly requested custom DB; let Server auto-match companion bins
+		resolvedBin = ""
+	}
 
 	addr := fmt.Sprintf("127.0.0.1:%d", *portFlag)
 	url := fmt.Sprintf("http://%s", addr)
@@ -94,8 +130,11 @@ func main() {
 		}
 	}
 
-	absDB, _ := filepath.Abs(*dbFlag)
-	absBin, _ := filepath.Abs(*binFlag)
+	absDB, _ := filepath.Abs(resolvedDB)
+	absBin := "(auto-detect)"
+	if resolvedBin != "" {
+		absBin, _ = filepath.Abs(resolvedBin)
+	}
 
 	fmt.Println("================================================================================")
 	fmt.Println("       BinGo Master - High-Performance ECU Calibration & Binary Studio          ")
@@ -105,7 +144,7 @@ func main() {
 	fmt.Printf("[*] Web Server Port: %d\n", *portFlag)
 
 	// Open DB
-	dbStore, err := NewDBStore(*dbFlag)
+	dbStore, err := NewDBStore(resolvedDB)
 	if err != nil {
 		fmt.Printf("[!] Fatal: Error opening SQLite database: %v\n", err)
 		os.Exit(1)
@@ -113,10 +152,13 @@ func main() {
 	defer dbStore.Close()
 
 	// Initialize Bin Manager
-	binMgr := NewBinManager(*binFlag)
+	binMgr := NewBinManager(resolvedBin)
 
 	// Setup Server
-	server := NewServer(dbStore, binMgr, *dbFlag)
+	server := NewServer(dbStore, binMgr, resolvedDB)
+	if explicitDB && !explicitBin && !isBuiltinDBName(filepath.Base(resolvedDB)) {
+		_ = server.switchDatabase(resolvedDB, true)
+	}
 	mux := http.NewServeMux()
 
 	// Register API routes
@@ -135,8 +177,8 @@ func main() {
 	httpServer := &http.Server{
 		Addr:         addr,
 		Handler:      mux,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		ReadTimeout:  120 * time.Second,
+		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
